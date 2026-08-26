@@ -21,3 +21,14 @@ export {
   type Fact,
   type InferenceResult,
 } from './inference.js';
+export {
+  ask,
+  c,
+  select,
+  v,
+  type Binding,
+  type Pattern,
+  type Query,
+  type QueryAnswer,
+  type Term,
+} from './query.js';

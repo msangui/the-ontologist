@@ -82,6 +82,148 @@ function FactRow({ fact }: { fact: FactView }) {
   );
 }
 
+/**
+ * The Test verb (#51 embryo): sentence-based query builder — mad-libs slots,
+ * never free text. Slot options come from what the model already knows.
+ */
+function AskPanel() {
+  const containsSlotOptions = useGameStore((s) => s.containsSlotOptions);
+  const queryResults = useGameStore((s) => s.queryResults);
+  const querySentence = useGameStore((s) => s.querySentence);
+  const runContainsQuery = useGameStore((s) => s.runContainsQuery);
+  const runSoldHereQuery = useGameStore((s) => s.runSoldHereQuery);
+  const toggleQuery = useGameStore((s) => s.toggleQuery);
+  const [template, setTemplate] = useState<'contains' | 'soldHere'>('contains');
+  const [slot, setSlot] = useState('');
+
+  const canRun = template === 'soldHere' || (slot !== '' && containsSlotOptions.length > 0);
+
+  return (
+    <div
+      data-testid="query-panel"
+      style={{
+        ...panel,
+        position: 'absolute',
+        top: 170,
+        right: 16,
+        width: 340,
+        maxHeight: '60vh',
+        overflowY: 'auto',
+        padding: '12px 14px',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+        <strong>Ask the model</strong>
+        <button
+          type="button"
+          onClick={toggleQuery}
+          style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 14 }}
+          aria-label="Close"
+        >
+          ✕
+        </button>
+      </div>
+
+      <div style={{ marginTop: 8, lineHeight: 2 }}>
+        Which products{' '}
+        <select
+          data-testid="query-template"
+          value={template}
+          onChange={(e) => setTemplate(e.target.value as 'contains' | 'soldHere')}
+          style={{ fontSize: 13 }}
+        >
+          <option value="contains">contain</option>
+          <option value="soldHere">are sold at</option>
+        </select>{' '}
+        {template === 'contains' ? (
+          <select
+            data-testid="query-slot"
+            value={slot}
+            onChange={(e) => setSlot(e.target.value)}
+            style={{ fontSize: 13 }}
+          >
+            <option value="" disabled>
+              {containsSlotOptions.length ? 'pick an ingredient…' : 'scan evidence first…'}
+            </option>
+            {containsSlotOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <strong>FreshMart #12</strong>
+        )}
+        ?{' '}
+        <button
+          type="button"
+          data-testid="query-run"
+          disabled={!canRun}
+          onClick={() => (template === 'contains' ? runContainsQuery(slot) : runSoldHereQuery())}
+          style={{
+            marginLeft: 6,
+            padding: '3px 12px',
+            borderRadius: 8,
+            border: '1px solid #2b5a78',
+            background: '#2b5a78',
+            color: '#fff',
+            cursor: canRun ? 'pointer' : 'not-allowed',
+            opacity: canRun ? 1 : 0.5,
+          }}
+        >
+          Ask
+        </button>
+      </div>
+
+      {queryResults && (
+        <div data-testid="query-results" style={{ marginTop: 10 }}>
+          <div style={{ color: '#7a7062', marginBottom: 6 }}>
+            <em>{querySentence}</em>
+          </div>
+          {queryResults.length === 0 ? (
+            <div>
+              No products match — <em>so far</em>. Absence of evidence isn’t evidence of absence.
+            </div>
+          ) : (
+            <ul style={{ margin: 0, padding: 0 }}>
+              {queryResults.map((row) => {
+                const badge = TRUTH_BADGE[row.truth]!;
+                return (
+                  <li
+                    key={row.entityId}
+                    data-testid={`answer-${row.entityId}`}
+                    style={{ listStyle: 'none', marginBottom: 6 }}
+                  >
+                    <span style={{ color: badge.color, marginRight: 6 }} aria-hidden>
+                      {badge.glyph}
+                    </span>
+                    {row.label}
+                    {row.truth === 'unknown' && (
+                      <em style={{ color: badge.color }}> — can’t tell yet</em>
+                    )}
+                    <details style={{ marginLeft: 18, color: '#5a4c3a' }}>
+                      <summary style={{ cursor: 'pointer', fontSize: 12 }}>
+                        {row.truth === 'unknown' ? 'what would settle it?' : 'why?'}
+                      </summary>
+                      <ul style={{ margin: '4px 0 0 14px', padding: 0 }}>
+                        {row.supports.map((line) => (
+                          <li key={line} style={{ listStyle: 'disc' }}>
+                            {line}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function App() {
   const state = useGameStore();
 
@@ -94,6 +236,7 @@ export function App() {
         if (nearbyId) scan(nearbyId);
       }
       if (key === 'j') useGameStore.getState().toggleJournal();
+      if (key === 'q') useGameStore.getState().toggleQuery();
       if (key === 'escape') useGameStore.getState().closeLens();
     };
     window.addEventListener('keydown', onKey);
@@ -134,7 +277,7 @@ export function App() {
           </span>
         </div>
         <div style={{ marginTop: 6, color: '#7a7062', fontSize: 12 }}>
-          WASD/arrows move · E scan · J journal · click a nearby item to scan
+          WASD/arrows move · E scan · J journal · Q ask · click a nearby item to scan
         </div>
       </div>
 
@@ -271,6 +414,9 @@ export function App() {
         </div>
       )}
 
+      {/* Ask panel (the Test verb). */}
+      {state.queryOpen && <AskPanel />}
+
       {/* Contextual prompt. */}
       {state.nearbyId && !state.lensCard && (
         <div
@@ -303,6 +449,23 @@ export function App() {
         }}
       >
         📓 Journal ({state.journal.length})
+      </button>
+
+      {/* Ask toggle for pointer-first players. */}
+      <button
+        type="button"
+        data-testid="query-toggle"
+        onClick={state.toggleQuery}
+        style={{
+          ...panel,
+          position: 'absolute',
+          left: 170,
+          bottom: 16,
+          padding: '8px 14px',
+          cursor: 'pointer',
+        }}
+      >
+        🔍 Ask
       </button>
     </>
   );

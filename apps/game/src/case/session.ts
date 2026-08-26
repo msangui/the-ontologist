@@ -1,8 +1,11 @@
 import {
   AssertionLog,
   VOCAB,
+  c,
   explain,
   infer,
+  select,
+  v,
   type Assertion,
   type ExplanationNode,
   type Fact,
@@ -15,6 +18,7 @@ import {
   ONTOLOGY_FACTS,
   PRODUCT_IDS,
   RECALLED_CLASS,
+  STORE_ID,
   type ProtoEntity,
   type ScanFact,
 } from './protoCase';
@@ -247,4 +251,63 @@ export class CaseSession {
   caseComplete(): boolean {
     return Object.values(this.productStatuses()).every((s) => s !== 'pending');
   }
+
+  // --- The Test verb: sentence-based queries over the model (#27/#51) -----
+
+  /**
+   * Slot options for "Which products contain [___]?" — only things the model
+   * has SEEN as contained (the builder quietly teaches what fits where).
+   */
+  containsSlotOptions(): { id: string; label: string }[] {
+    const seen = new Set<string>();
+    for (const f of [...this.result.base, ...this.result.derived]) {
+      if (f.predicate === 'contains' && typeof f.object === 'string') seen.add(f.object);
+    }
+    return [...seen].sort().map((id) => ({ id, label: LABELS[id] ?? id }));
+  }
+
+  /** "Which products contain X?" — tri-state answers with supports. */
+  queryProductsContaining(objectId: string): QueryResultView[] {
+    return this.runProductQuery([
+      { subject: v('p'), predicate: c('contains'), object: c(objectId) },
+    ]);
+  }
+
+  /** "Which products are sold at FreshMart #12?" */
+  queryProductsSoldHere(): QueryResultView[] {
+    return this.runProductQuery([{ subject: v('p'), predicate: c('soldAt'), object: c(STORE_ID) }]);
+  }
+
+  private runProductQuery(where: Parameters<typeof select>[1]['where']): QueryResultView[] {
+    const products = new Set<string>(PRODUCT_IDS);
+    const answers = select(this.result, { select: ['p'], where }).filter(
+      (ans) => typeof ans.binding['p'] === 'string' && products.has(ans.binding['p'] as string),
+    );
+    return answers.map((ans) => {
+      const entityId = ans.binding['p'] as string;
+      const supports = ans.supports.map((f) => {
+        const derived = this.result.derived.find((d) => d.id === f.id);
+        const suffix = f.truth === 'unknown' ? ' — unknown' : derived ? ' — inferred' : '';
+        return `${factText(f)}${suffix}`;
+      });
+      // For inferred supports, add the ground evidence behind them.
+      const groundLines = ans.supports
+        .filter((f) => this.result.derived.some((d) => d.id === f.id))
+        .flatMap((f) => this.groundTexts(f.id));
+      return {
+        entityId,
+        label: LABELS[entityId] ?? entityId,
+        truth: ans.truth,
+        supports: [...new Set([...supports, ...groundLines])],
+      };
+    });
+  }
+}
+
+export interface QueryResultView {
+  readonly entityId: string;
+  readonly label: string;
+  readonly truth: 'true' | 'unknown';
+  /** Support lines — for unknown answers these ARE the missing evidence. */
+  readonly supports: readonly string[];
 }

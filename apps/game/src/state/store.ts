@@ -1,5 +1,11 @@
 import { create } from 'zustand';
-import { CaseSession, type FactView, type ProductStatus, type ScanOutcome } from '../case/session';
+import {
+  CaseSession,
+  type FactView,
+  type ProductStatus,
+  type QueryResultView,
+  type ScanOutcome,
+} from '../case/session';
 
 /**
  * The one bridge between Babylon and React. Babylon uses getState()/subscribe()
@@ -30,9 +36,18 @@ export interface GameState {
   nearbyId: string | null;
   nearbyLabel: string | null;
 
+  /** The Test verb: sentence-based query builder state (#51). */
+  queryOpen: boolean;
+  containsSlotOptions: readonly { id: string; label: string }[];
+  queryResults: readonly QueryResultView[] | null;
+  querySentence: string | null;
+
   scan: (entityId: string) => void;
   setNearby: (id: string | null, label: string | null) => void;
   toggleJournal: () => void;
+  toggleQuery: () => void;
+  runContainsQuery: (objectId: string) => void;
+  runSoldHereQuery: () => void;
   closeLens: () => void;
 }
 
@@ -48,6 +63,7 @@ const mirror = (outcome: ScanOutcome | null, prev: GameState): Partial<GameState
   contradictionCount: session.contradictionCount(),
   productStatus: session.productStatuses(),
   caseComplete: session.caseComplete(),
+  containsSlotOptions: session.containsSlotOptions(),
   lensCard: outcome
     ? {
         entityId: outcome.entity.id,
@@ -72,6 +88,10 @@ export const useGameStore = create<GameState>((set) => ({
   journalOpen: false,
   nearbyId: null,
   nearbyLabel: null,
+  queryOpen: false,
+  containsSlotOptions: session.containsSlotOptions(),
+  queryResults: null,
+  querySentence: null,
 
   scan: (entityId) =>
     set((prev) => {
@@ -81,5 +101,19 @@ export const useGameStore = create<GameState>((set) => ({
   setNearby: (id, nearbyLabel) =>
     set((prev) => (prev.nearbyId === id ? prev : { nearbyId: id, nearbyLabel })),
   toggleJournal: () => set((prev) => ({ journalOpen: !prev.journalOpen })),
+  toggleQuery: () =>
+    set((prev) => ({ queryOpen: !prev.queryOpen, ...(prev.queryOpen ? {} : { lensCard: null }) })),
+  runContainsQuery: (objectId) =>
+    set((prev) => ({
+      queryResults: session.queryProductsContaining(objectId),
+      querySentence: `Which products contain ${
+        prev.containsSlotOptions.find((o) => o.id === objectId)?.label ?? objectId
+      }?`,
+    })),
+  runSoldHereQuery: () =>
+    set({
+      queryResults: session.queryProductsSoldHere(),
+      querySentence: 'Which products are sold at FreshMart #12?',
+    }),
   closeLens: () => set({ lensCard: null }),
 }));
