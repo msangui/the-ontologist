@@ -43,9 +43,11 @@ Every PR runs lint → format check → typecheck → unit tests → build, plus
 
 The game ships as a **static Vite build** — no server for core play. The only future server pieces are two Vercel Functions: `/api/wishlist` (#81) and `/api/telemetry` (#82).
 
+Configuration lives in the repo's root [`vercel.json`](./vercel.json) — install at the workspace root, build `@ontologist/game`, serve `apps/game/dist`. Deploying from the repo root also keeps the door open for the two `/api` functions later.
+
 One-time setup (needs the Vercel account — backlog #17):
 
-1. Import this repo in Vercel; framework preset **Vite**.
-2. Root directory: `apps/game`; install command: `pnpm install` (run at repo root — enable "Include files outside root directory"); build command: `pnpm build`; output: `dist`.
+1. Import this repo in Vercel and **leave Root Directory at the repo root** (if it was previously set to `apps/game`, clear it — `vercel.json` is only read from the configured root).
+2. No build/output overrides in the dashboard; `vercel.json` is the source of truth.
 3. Preview deployments on every PR; production from `main`.
 4. Set the `E2E_BASE_URL` env in CI to the preview URL to point the Playwright job at real deployments.
