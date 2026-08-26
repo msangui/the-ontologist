@@ -1,0 +1,9 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.vercel/
+playwright-report/
+test-results/
+.DS_Store
+*.local
