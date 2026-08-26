@@ -14,6 +14,7 @@ declare global {
       getState: () => unknown;
       debug: {
         teleportTo: (entityId: string) => boolean;
+        getPlayerPosition: () => { x: number; z: number };
       };
     };
   }
@@ -40,12 +41,18 @@ function bootstrap(): void {
   const overlayRoot = document.getElementById('overlay-root') as HTMLElement;
 
   const webgl2 = supportsWebGL2();
-  const noopApi: SceneApi = { teleportTo: () => false };
+  let sceneApi: SceneApi = {
+    teleportTo: () => false,
+    getPlayerPosition: () => ({ x: 0, z: 0 }),
+  };
   window.__ontologist = {
     ready: false,
     webgl2,
     getState: () => useGameStore.getState(),
-    debug: { teleportTo: (id) => noopApi.teleportTo(id) },
+    debug: {
+      teleportTo: (id) => sceneApi.teleportTo(id),
+      getPlayerPosition: () => sceneApi.getPlayerPosition(),
+    },
   };
 
   if (!webgl2) {
@@ -55,7 +62,7 @@ function bootstrap(): void {
   }
 
   const engine = new Engine(canvas, true, { adaptToDeviceRatio: true });
-  const sceneApi = createScene(engine, canvas);
+  sceneApi = createScene(engine, canvas);
   window.addEventListener('resize', () => engine.resize());
 
   createRoot(overlayRoot).render(
@@ -64,7 +71,6 @@ function bootstrap(): void {
     </StrictMode>,
   );
 
-  window.__ontologist.debug.teleportTo = (id) => sceneApi.teleportTo(id);
   window.__ontologist.ready = true;
 }
 

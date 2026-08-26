@@ -22,6 +22,8 @@ import type { ProductStatus } from '../case/session';
 export interface SceneApi {
   /** Test/debug hook: drop the player next to a scannable (e2e uses this). */
   teleportTo: (entityId: string) => boolean;
+  /** Test/debug hook: current player ground position. */
+  getPlayerPosition: () => { x: number; z: number };
 }
 
 const SCAN_RANGE = 2.4;
@@ -167,26 +169,36 @@ export function createScene(engine: Engine, canvas: HTMLCanvasElement): SceneApi
     if (Math.hypot(dx, dz) <= SCAN_RANGE) useGameStore.getState().scan(name);
   };
 
-  // Camera-relative axes for our fixed alpha: forward is toward -x/-z diagonal.
   const SPEED = 5;
   scene.onBeforeRenderObservable.add(() => {
     const dt = engine.getDeltaTime() / 1000;
 
-    let dx = 0;
-    let dz = 0;
-    if (keys.has('w') || keys.has('arrowup')) dz -= 1;
-    if (keys.has('s') || keys.has('arrowdown')) dz += 1;
-    if (keys.has('a') || keys.has('arrowleft')) dx -= 1;
-    if (keys.has('d') || keys.has('arrowright')) dx += 1;
-    if (dx !== 0 || dz !== 0) {
-      const len = Math.hypot(dx, dz);
+    // Input in screen space: up/down along the vertical axis of the screen,
+    // left/right along the horizontal.
+    let inputX = 0;
+    let inputY = 0;
+    if (keys.has('w') || keys.has('arrowup')) inputY += 1;
+    if (keys.has('s') || keys.has('arrowdown')) inputY -= 1;
+    if (keys.has('a') || keys.has('arrowleft')) inputX -= 1;
+    if (keys.has('d') || keys.has('arrowright')) inputX += 1;
+    if (inputX !== 0 || inputY !== 0) {
+      // Screen-aligned world basis, derived from the camera each frame so
+      // "up" is always up on screen. The camera itself is never modified —
+      // fixed angle per §11.
+      const screenUp = camera.target.subtract(camera.position);
+      screenUp.y = 0;
+      screenUp.normalize();
+      const screenRight = Vector3.Cross(Vector3.Up(), screenUp);
+
+      const move = screenRight.scale(inputX).add(screenUp.scale(inputY));
+      move.normalize();
       player.position.x = Math.min(
         BOUNDS.x,
-        Math.max(-BOUNDS.x, player.position.x + (dx / len) * SPEED * dt),
+        Math.max(-BOUNDS.x, player.position.x + move.x * SPEED * dt),
       );
       player.position.z = Math.min(
         BOUNDS.z,
-        Math.max(-BOUNDS.z, player.position.z + (dz / len) * SPEED * dt),
+        Math.max(-BOUNDS.z, player.position.z + move.z * SPEED * dt),
       );
     }
 
@@ -237,5 +249,6 @@ export function createScene(engine: Engine, canvas: HTMLCanvasElement): SceneApi
       player.position.z = Math.min(BOUNDS.z, entity.position[1] + 1.2);
       return true;
     },
+    getPlayerPosition: () => ({ x: player.position.x, z: player.position.z }),
   };
 }

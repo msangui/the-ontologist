@@ -79,7 +79,10 @@ declare global {
       ready: boolean;
       webgl2: boolean;
       getState: () => unknown;
-      debug: { teleportTo: (entityId: string) => boolean };
+      debug: {
+        teleportTo: (entityId: string) => boolean;
+        getPlayerPosition: () => { x: number; z: number };
+      };
     };
   }
 }
