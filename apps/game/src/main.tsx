@@ -1,8 +1,9 @@
 import { Engine } from '@babylonjs/core/Engines/engine';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { loadAutosave } from './case/persistence';
 import { createScene, type SceneApi } from './scene/createScene';
-import { useGameStore } from './state/store';
+import { hydrateFromSnapshot, useGameStore } from './state/store';
 import { App } from './ui/App';
 
 declare global {
@@ -36,7 +37,7 @@ function showFallback(overlayRoot: HTMLElement): void {
     </div>`;
 }
 
-function bootstrap(): void {
+async function bootstrap(): Promise<void> {
   const canvas = document.getElementById('render-canvas') as HTMLCanvasElement;
   const overlayRoot = document.getElementById('overlay-root') as HTMLElement;
 
@@ -71,7 +72,12 @@ function bootstrap(): void {
     </StrictMode>,
   );
 
+  // Resume the autosave, if any — after the scene subscribes, so the world
+  // reacts to the restored state (statuses, wave-2 visibility).
+  const saved = await loadAutosave();
+  if (saved) hydrateFromSnapshot(saved);
+
   window.__ontologist.ready = true;
 }
 
-bootstrap();
+void bootstrap();

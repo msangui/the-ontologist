@@ -254,8 +254,10 @@ export function createScene(engine: Engine, canvas: HTMLCanvasElement): SceneApi
         material.alpha = status === 'uncertain' ? 0.65 : 1; // textured fog stand-in
       }
     }
-    if (state.phase !== prev.phase && state.phase !== 'investigate') {
-      for (const mesh of waveTwoMeshes) mesh.setEnabled(true);
+    if (state.phase !== prev.phase) {
+      // Reveal wave-2 evidence during verification; re-hide on case reset.
+      const visible = state.phase !== 'investigate';
+      for (const mesh of waveTwoMeshes) mesh.setEnabled(visible);
     }
   });
 

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { clearAutosave, saveAutosave } from '../case/persistence';
 import {
   CaseSession,
   type CasePhase,
@@ -13,7 +14,8 @@ import {
 /**
  * The one bridge between Babylon and React. Babylon uses getState()/subscribe()
  * imperatively; React uses the hook. All case logic lives in CaseSession —
- * this store only mirrors it for the two presentation layers.
+ * this store only mirrors it for the two presentation layers, and persists it
+ * (#62/#63: autosave at beats + user-facing export/import).
  */
 
 export interface LensCardView {
@@ -48,6 +50,10 @@ export interface GameState {
   queryResults: readonly QueryResultView[] | null;
   querySentence: string | null;
 
+  /** Completed autosave writes this session (e2e waits on this). */
+  savesWritten: number;
+  importError: string | null;
+
   scan: (entityId: string) => void;
   setNearby: (id: string | null, label: string | null) => void;
   toggleJournal: () => void;
@@ -58,9 +64,30 @@ export interface GameState {
   openCommit: () => void;
   closeCommit: () => void;
   fileReport: (decisions: Record<string, RecallDecision>) => void;
+  resetCase: () => void;
+  exportSave: () => string;
+  importSave: (raw: string) => boolean;
 }
 
-const session = new CaseSession();
+let session = new CaseSession();
+
+/** Try to resume from the persisted autosave. Called once at bootstrap. */
+export function hydrateFromSnapshot(snapshot: unknown): boolean {
+  const restored = CaseSession.restore(snapshot);
+  if (!restored) return false;
+  session = restored;
+  useGameStore.setState((prev) => ({
+    ...mirror(null, prev),
+    scannedIds: session.snapshot().scannedIds,
+  }));
+  return true;
+}
+
+const persist = (): void => {
+  void saveAutosave(session.snapshot()).then((ok) => {
+    if (ok) useGameStore.setState((prev) => ({ savesWritten: prev.savesWritten + 1 }));
+  });
+};
 
 const mirror = (outcome: ScanOutcome | null, prev: GameState): Partial<GameState> => ({
   scannedIds: prev.scannedIds.includes(outcome?.entity.id ?? '')
@@ -87,32 +114,39 @@ const mirror = (outcome: ScanOutcome | null, prev: GameState): Partial<GameState
     : prev.lensCard,
 });
 
-export const useGameStore = create<GameState>((set) => ({
-  scannedIds: [],
+const freshUiState = {
+  scannedIds: [] as readonly string[],
   scannedCount: 0,
-  scannableCount: session.scannableCount,
-  journal: [],
+  journal: [] as readonly FactView[],
   contradictionCount: 0,
-  productStatus: session.productStatuses(),
-  caseComplete: false,
-  lensCard: null,
-  journalOpen: false,
-  nearbyId: null,
-  nearbyLabel: null,
-  phase: session.phase,
   readyToCommit: false,
   commitOpen: false,
   debrief: null,
+  lensCard: null,
+  journalOpen: false,
   queryOpen: false,
-  containsSlotOptions: session.containsSlotOptions(),
   queryResults: null,
   querySentence: null,
+  importError: null,
+};
 
-  scan: (entityId) =>
+export const useGameStore = create<GameState>((set) => ({
+  ...freshUiState,
+  scannableCount: session.scannableCount,
+  productStatus: session.productStatuses(),
+  phase: session.phase,
+  containsSlotOptions: session.containsSlotOptions(),
+  nearbyId: null,
+  nearbyLabel: null,
+  savesWritten: 0,
+
+  scan: (entityId) => {
     set((prev) => {
       const outcome = session.scan(entityId);
       return mirror(outcome, prev);
-    }),
+    });
+    persist();
+  },
   setNearby: (id, nearbyLabel) =>
     set((prev) => (prev.nearbyId === id ? prev : { nearbyId: id, nearbyLabel })),
   toggleJournal: () => set((prev) => ({ journalOpen: !prev.journalOpen })),
@@ -133,13 +167,53 @@ export const useGameStore = create<GameState>((set) => ({
   closeLens: () => set({ lensCard: null }),
   openCommit: () => set({ commitOpen: true, lensCard: null, queryOpen: false }),
   closeCommit: () => set({ commitOpen: false }),
-  fileReport: (decisions) =>
+  fileReport: (decisions) => {
+    let committed = false;
     set((prev) => {
       if (!session.commit(decisions)) return prev;
-      return {
-        ...mirror(null, prev),
-        commitOpen: false,
-        scannableCount: session.scannableCount,
-      };
-    }),
+      committed = true;
+      return { ...mirror(null, prev), commitOpen: false };
+    });
+    if (committed) persist();
+  },
+
+  resetCase: () => {
+    session = new CaseSession();
+    void clearAutosave();
+    set((prev) => ({
+      ...freshUiState,
+      scannableCount: session.scannableCount,
+      productStatus: session.productStatuses(),
+      phase: session.phase,
+      containsSlotOptions: session.containsSlotOptions(),
+      savesWritten: prev.savesWritten,
+    }));
+  },
+
+  /** User-facing save file (#63): the snapshot as pretty JSON. */
+  exportSave: () => JSON.stringify(session.snapshot(), null, 2),
+
+  importSave: (raw) => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      set({ importError: 'That file is not a valid save (not JSON).' });
+      return false;
+    }
+    const restored = CaseSession.restore(parsed);
+    if (!restored) {
+      set({ importError: 'That file is not a valid save (wrong version or corrupt).' });
+      return false;
+    }
+    session = restored;
+    set((prev) => ({
+      ...mirror(null, prev),
+      ...{ lensCard: null, commitOpen: false, queryResults: null, querySentence: null },
+      scannedIds: session.snapshot().scannedIds,
+      importError: null,
+    }));
+    persist();
+    return true;
+  },
 }));

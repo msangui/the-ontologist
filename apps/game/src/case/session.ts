@@ -96,8 +96,18 @@ const factText = (f: Fact): string => {
   return `${label(f.subject)} ${verb} ${label(f.object)}`;
 };
 
+/** Versioned save shape (#62): the assertion log IS the model save (§18.7). */
+export interface CaseSnapshot {
+  readonly saveVersion: 1;
+  readonly log: string;
+  readonly scannedIds: readonly string[];
+  readonly phase: CasePhase;
+  readonly decisions: Readonly<Record<string, RecallDecision>>;
+  readonly seq: number;
+}
+
 export class CaseSession {
-  private readonly log = new AssertionLog();
+  private readonly log: AssertionLog;
   private readonly entities = new Map(ENTITIES.map((e) => [e.id, e]));
   private readonly scanned = new Set<string>();
   private result: InferenceResult;
@@ -106,9 +116,48 @@ export class CaseSession {
   private currentPhase: CasePhase = 'investigate';
   private decisions: Record<string, RecallDecision> = {};
 
-  constructor() {
-    for (const fact of ONTOLOGY_FACTS) this.assert(fact, { kind: 'scenario' });
+  constructor(snapshot?: CaseSnapshot) {
+    if (snapshot) {
+      this.log = AssertionLog.deserialize(snapshot.log);
+      this.scanned = new Set(snapshot.scannedIds);
+      this.currentPhase = snapshot.phase;
+      this.decisions = { ...snapshot.decisions };
+      this.seq = snapshot.seq;
+    } else {
+      this.log = new AssertionLog();
+      for (const fact of ONTOLOGY_FACTS) this.assert(fact, { kind: 'scenario' });
+    }
     this.result = infer(this.log);
+  }
+
+  snapshot(): CaseSnapshot {
+    return {
+      saveVersion: 1,
+      log: this.log.serialize(),
+      scannedIds: [...this.scanned],
+      phase: this.currentPhase,
+      decisions: { ...this.decisions },
+      seq: this.seq,
+    };
+  }
+
+  /** Restore from a snapshot; null on anything corrupt (never a crash). */
+  static restore(snapshot: unknown): CaseSession | null {
+    try {
+      const snap = snapshot as CaseSnapshot;
+      if (
+        !snap ||
+        snap.saveVersion !== 1 ||
+        typeof snap.log !== 'string' ||
+        !Array.isArray(snap.scannedIds) ||
+        typeof snap.seq !== 'number'
+      ) {
+        return null;
+      }
+      return new CaseSession(snap);
+    } catch {
+      return null;
+    }
   }
 
   get phase(): CasePhase {

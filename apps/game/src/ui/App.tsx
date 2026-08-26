@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { LABELS, PRODUCT_IDS } from '../case/protoCase';
 import {
@@ -404,6 +404,73 @@ function DebriefPanel() {
   );
 }
 
+/** Save controls (#62/#63): reset, export to file, import from file. */
+function SaveControls() {
+  const resetCase = useGameStore((s) => s.resetCase);
+  const exportSave = useGameStore((s) => s.exportSave);
+  const importSave = useGameStore((s) => s.importSave);
+  const importError = useGameStore((s) => s.importError);
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  const linkStyle: CSSProperties = {
+    border: 'none',
+    background: 'none',
+    padding: 0,
+    color: '#2b5a78',
+    cursor: 'pointer',
+    fontSize: 12,
+    textDecoration: 'underline',
+  };
+
+  const download = () => {
+    const blob = new Blob([exportSave()], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'the-ontologist-save.json';
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div style={{ marginTop: 8, fontSize: 12 }}>
+      <button type="button" data-testid="reset-case" onClick={resetCase} style={linkStyle}>
+        New case
+      </button>
+      {' · '}
+      <button type="button" data-testid="export-save" onClick={download} style={linkStyle}>
+        Export save
+      </button>
+      {' · '}
+      <button
+        type="button"
+        data-testid="import-save"
+        onClick={() => fileInput.current?.click()}
+        style={linkStyle}
+      >
+        Import save
+      </button>
+      <input
+        ref={fileInput}
+        type="file"
+        accept="application/json,.json"
+        data-testid="import-save-input"
+        style={{ display: 'none' }}
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          if (file) importSave(await file.text());
+          e.target.value = '';
+        }}
+      />
+      {importError && (
+        <div data-testid="import-error" style={{ color: '#8c2f26', marginTop: 4 }}>
+          {importError}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function App() {
   const state = useGameStore();
 
@@ -464,6 +531,7 @@ export function App() {
         <div style={{ marginTop: 6, color: '#7a7062', fontSize: 12 }}>
           WASD/arrows move · E scan · J journal · Q ask · click a nearby item to scan
         </div>
+        <SaveControls />
       </div>
 
       {/* Case status panel — the case question, answered live by the engine. */}
