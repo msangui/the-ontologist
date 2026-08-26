@@ -1,18 +1,20 @@
 import { Engine } from '@babylonjs/core/Engines/engine';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { AssertionLog } from '@ontologist/semantic-engine';
-import { createScene } from './scene/createScene';
+import { createScene, type SceneApi } from './scene/createScene';
 import { useGameStore } from './state/store';
 import { App } from './ui/App';
 
 declare global {
   interface Window {
-    /** Readiness + state hook for Playwright (backlog #18). Read-only in spirit. */
+    /** Readiness + debug hooks for Playwright (backlog #18). */
     __ontologist?: {
       ready: boolean;
       webgl2: boolean;
       getState: () => unknown;
+      debug: {
+        teleportTo: (entityId: string) => boolean;
+      };
     };
   }
 }
@@ -38,10 +40,12 @@ function bootstrap(): void {
   const overlayRoot = document.getElementById('overlay-root') as HTMLElement;
 
   const webgl2 = supportsWebGL2();
+  const noopApi: SceneApi = { teleportTo: () => false };
   window.__ontologist = {
     ready: false,
     webgl2,
     getState: () => useGameStore.getState(),
+    debug: { teleportTo: (id) => noopApi.teleportTo(id) },
   };
 
   if (!webgl2) {
@@ -50,20 +54,8 @@ function bootstrap(): void {
     return;
   }
 
-  // Sanity round-trip through the semantic engine package: the boundary works.
-  const log = new AssertionLog();
-  log.assert({
-    id: 'boot:hello',
-    subject: 'game:client',
-    predicate: 'bootedWith',
-    object: 'webgl2',
-    truth: 'true',
-    provenance: { kind: 'scenario' },
-  });
-
   const engine = new Engine(canvas, true, { adaptToDeviceRatio: true });
-  const scene = createScene(engine, canvas);
-  engine.runRenderLoop(() => scene.render());
+  const sceneApi = createScene(engine, canvas);
   window.addEventListener('resize', () => engine.resize());
 
   createRoot(overlayRoot).render(
@@ -72,6 +64,7 @@ function bootstrap(): void {
     </StrictMode>,
   );
 
+  window.__ontologist.debug.teleportTo = (id) => sceneApi.teleportTo(id);
   window.__ontologist.ready = true;
 }
 
