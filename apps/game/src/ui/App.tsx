@@ -399,6 +399,25 @@ function DebriefPanel() {
       >
         {debrief.anchorOutcome}
       </div>
+      <div data-testid="competency-results" style={{ marginTop: 10 }}>
+        <strong>
+          Model verification: {debrief.competency.passed}/{debrief.competency.total} competency
+          questions passed
+        </strong>
+        <ul style={{ margin: '6px 0 0', padding: 0 }}>
+          {debrief.competency.results.map((result) => (
+            <li key={result.id} style={{ listStyle: 'none', fontSize: 12, marginBottom: 2 }}>
+              <span
+                style={{ color: result.passed ? '#2f6b3f' : '#8c2f26', marginRight: 6 }}
+                aria-hidden
+              >
+                {result.passed ? '✓' : '✗'}
+              </span>
+              {result.prompt}
+            </li>
+          ))}
+        </ul>
+      </div>
       <div style={{ marginTop: 8, color: '#7a7062', fontSize: 12 }}>{debrief.reworkNote}</div>
     </div>
   );

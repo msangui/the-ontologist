@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Scenario Schema (JSON + Zod) for The Last Ontologist cases. Enforces the human anchor rule (§1.6) at the schema level.",
+  "description": "Scenario Schema v1 (JSON + Zod) and the Casewright lint for The Last Ontologist cases. Enforces the human anchor rule (§1.6) at the schema level; proves competency questions against the intended model with the real engine.",
   "exports": {
     ".": {
       "types": "./src/index.ts",
@@ -13,12 +13,15 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "casewright": "tsx src/casewright.ts"
   },
   "dependencies": {
+    "@ontologist/semantic-engine": "workspace:*",
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "tsx": "^4.19.2",
     "typescript": "^5.6.3",
     "vitest": "^3.0.0"
   }

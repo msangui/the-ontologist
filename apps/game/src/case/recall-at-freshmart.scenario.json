@@ -1,0 +1,232 @@
+{
+  "schemaVersion": 1,
+  "id": "proto.recall-at-freshmart",
+  "titleKey": "case.title",
+  "params": {
+    "storeId": "store:freshmart-12",
+    "recalledClassId": "class:recalled-ingredient"
+  },
+  "humanAnchor": {
+    "nameKey": "anchor.name",
+    "harmKey": "anchor.harm"
+  },
+  "strings": {
+    "case.title": "The Recall at FreshMart",
+    "anchor.name": "Maya",
+    "anchor.harm": "Maya has a tree-nut allergy. If the recalled paste stays on a shelf, she buys it.",
+    "label.recall-notice": "Recall Notice",
+    "label.delivery-manifest": "Delivery Manifest",
+    "label.lab-report": "Lab Results",
+    "label.choco-oat-bites": "Choco Oat Bites",
+    "label.trail-crunch": "Trail Crunch",
+    "label.berry-granola": "Berry Granola",
+    "label.sunny-pops": "Sunny Pops",
+    "label.freshmart": "FreshMart #12",
+    "label.recalled-class": "Recalled Ingredient",
+    "label.choco-base": "Choco Base Mix",
+    "label.hazelnut-paste": "Hazelnut Paste",
+    "label.rolled-oats": "Rolled Oats",
+    "label.corn": "Corn",
+    "label.contains": "contains",
+    "label.soldAt": "sold at",
+    "label.sells": "sells",
+    "blurb.recall-notice": "URGENT — supplier batch recall: hazelnut paste, Northstar Foods.",
+    "blurb.delivery-manifest": "This week's deliveries, with supplier mix compositions.",
+    "blurb.lab-report": "Courier drop from the testing lab — the field results are in.",
+    "blurb.choco-oat-bites": "Ingredients: choco base mix, rolled oats, honey.",
+    "blurb.trail-crunch": "The ingredient label is smudged — hazelnut paste? Can't tell.",
+    "blurb.berry-granola": "Ingredients: rolled oats, dried berries.",
+    "blurb.sunny-pops": "Shelf tag says DISCONTINUED — but it was on this week's manifest…",
+    "question.affected": "Which sold products contain the recalled paste?",
+    "question.granola-clean": "Is Berry Granola confirmed free of the recalled paste?",
+    "question.sold-here": "Which products are sold at FreshMart #12?",
+    "debrief.anchor-safe": "Maya — the shopper with the tree-nut allergy — shopped safely. The uncertain product stayed off her cart until the lab spoke.",
+    "debrief.anchor-harm": "Maya — the shopper with the tree-nut allergy — bought the cleared product before the lab results arrived. “Unknown” was never “safe.”",
+    "debrief.rework": "Field Verification resolved the unknowns without breaking your model — new evidence filled gaps the model had already marked. That is what a model that represents reality looks like."
+  },
+  "labels": {
+    "doc:recall-notice": "label.recall-notice",
+    "doc:delivery-manifest": "label.delivery-manifest",
+    "doc:lab-report": "label.lab-report",
+    "product:choco-oat-bites": "label.choco-oat-bites",
+    "product:trail-crunch": "label.trail-crunch",
+    "product:berry-granola": "label.berry-granola",
+    "product:sunny-pops": "label.sunny-pops",
+    "store:freshmart-12": "label.freshmart",
+    "class:recalled-ingredient": "label.recalled-class",
+    "mix:choco-base": "label.choco-base",
+    "ing:hazelnut-paste": "label.hazelnut-paste",
+    "ing:rolled-oats": "label.rolled-oats",
+    "ing:corn": "label.corn"
+  },
+  "ontologyFacts": [
+    { "subject": "contains", "predicate": "transitiveProperty", "object": true },
+    { "subject": "sells", "predicate": "inverseOf", "object": "soldAt" }
+  ],
+  "entities": [
+    {
+      "id": "doc:recall-notice",
+      "kind": "document",
+      "position": [-6.5, -4],
+      "blurbKey": "blurb.recall-notice",
+      "scanFacts": [
+        {
+          "subject": "ing:hazelnut-paste",
+          "predicate": "instanceOf",
+          "object": "class:recalled-ingredient"
+        }
+      ]
+    },
+    {
+      "id": "doc:delivery-manifest",
+      "kind": "document",
+      "position": [-6.5, -0.5],
+      "blurbKey": "blurb.delivery-manifest",
+      "scanFacts": [
+        { "subject": "mix:choco-base", "predicate": "contains", "object": "ing:hazelnut-paste" },
+        {
+          "subject": "product:choco-oat-bites",
+          "predicate": "soldAt",
+          "object": "store:freshmart-12"
+        },
+        {
+          "subject": "product:trail-crunch",
+          "predicate": "soldAt",
+          "object": "store:freshmart-12"
+        },
+        { "subject": "product:sunny-pops", "predicate": "soldAt", "object": "store:freshmart-12" }
+      ]
+    },
+    {
+      "id": "product:choco-oat-bites",
+      "kind": "product",
+      "position": [2.5, -2.6],
+      "blurbKey": "blurb.choco-oat-bites",
+      "scanFacts": [
+        {
+          "subject": "product:choco-oat-bites",
+          "predicate": "contains",
+          "object": "mix:choco-base"
+        }
+      ]
+    },
+    {
+      "id": "product:trail-crunch",
+      "kind": "product",
+      "position": [5.5, -2.6],
+      "blurbKey": "blurb.trail-crunch",
+      "scanFacts": [
+        {
+          "subject": "product:trail-crunch",
+          "predicate": "contains",
+          "object": "ing:hazelnut-paste",
+          "truth": "unknown"
+        }
+      ]
+    },
+    {
+      "id": "product:berry-granola",
+      "kind": "product",
+      "position": [2.5, 2.4],
+      "blurbKey": "blurb.berry-granola",
+      "scanFacts": [
+        { "subject": "product:berry-granola", "predicate": "contains", "object": "ing:rolled-oats" }
+      ]
+    },
+    {
+      "id": "product:sunny-pops",
+      "kind": "product",
+      "position": [5.5, 2.4],
+      "blurbKey": "blurb.sunny-pops",
+      "scanFacts": [
+        { "subject": "product:sunny-pops", "predicate": "contains", "object": "ing:corn" },
+        {
+          "subject": "product:sunny-pops",
+          "predicate": "soldAt",
+          "object": "store:freshmart-12",
+          "truth": "false"
+        }
+      ]
+    },
+    {
+      "id": "doc:lab-report",
+      "kind": "document",
+      "position": [-5.2, 2.8],
+      "blurbKey": "blurb.lab-report",
+      "wave": 2,
+      "scanFacts": [
+        {
+          "subject": "product:trail-crunch",
+          "predicate": "contains",
+          "object": "ing:hazelnut-paste"
+        },
+        {
+          "subject": "product:berry-granola",
+          "predicate": "contains",
+          "object": "ing:hazelnut-paste",
+          "truth": "false"
+        }
+      ]
+    }
+  ],
+  "competencyQuestions": [
+    {
+      "kind": "select",
+      "id": "q.affected",
+      "promptKey": "question.affected",
+      "select": ["p"],
+      "where": [
+        {
+          "subject": { "kind": "var", "name": "p" },
+          "predicate": { "kind": "const", "value": "contains" },
+          "object": { "kind": "const", "value": "ing:hazelnut-paste" }
+        },
+        {
+          "subject": { "kind": "var", "name": "p" },
+          "predicate": { "kind": "const", "value": "soldAt" },
+          "object": { "kind": "const", "value": "store:freshmart-12" }
+        }
+      ],
+      "expected": [
+        { "binding": { "p": "product:choco-oat-bites" }, "truth": "true" },
+        { "binding": { "p": "product:trail-crunch" }, "truth": "true" }
+      ]
+    },
+    {
+      "kind": "ask",
+      "id": "q.granola-clean",
+      "promptKey": "question.granola-clean",
+      "where": [
+        {
+          "subject": { "kind": "const", "value": "product:berry-granola" },
+          "predicate": { "kind": "const", "value": "contains" },
+          "object": { "kind": "const", "value": "ing:hazelnut-paste" }
+        }
+      ],
+      "expectedTruth": "false"
+    },
+    {
+      "kind": "select",
+      "id": "q.sold-here",
+      "promptKey": "question.sold-here",
+      "select": ["p"],
+      "where": [
+        {
+          "subject": { "kind": "var", "name": "p" },
+          "predicate": { "kind": "const", "value": "soldAt" },
+          "object": { "kind": "const", "value": "store:freshmart-12" }
+        }
+      ],
+      "expected": [
+        { "binding": { "p": "product:choco-oat-bites" }, "truth": "true" },
+        { "binding": { "p": "product:trail-crunch" }, "truth": "true" },
+        { "binding": { "p": "product:sunny-pops" }, "truth": "true" }
+      ]
+    }
+  ],
+  "debriefKeys": {
+    "anchorSafeKey": "debrief.anchor-safe",
+    "anchorHarmKey": "debrief.anchor-harm",
+    "reworkKey": "debrief.rework"
+  }
+}

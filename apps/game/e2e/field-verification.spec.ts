@@ -64,6 +64,8 @@ test('holding the uncertain product survives Field Verification', async ({ page 
   await expect(page.getByTestId('debrief-anchor')).toContainText('shopped safely');
   // The lab resolved the unknown: Trail Crunch is now AFFECTED in the model.
   await expect(page.getByTestId('status-product:trail-crunch')).toContainText('AFFECTED');
+  // The hidden competency battery passes against the completed model (#57).
+  await expect(page.getByTestId('competency-results')).toContainText('3/3');
   await expect(page.getByTestId('case-complete')).toBeVisible();
 });
 

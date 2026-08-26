@@ -12,14 +12,17 @@ import {
   type InferenceResult,
   type TruthValue,
 } from '@ontologist/semantic-engine';
+import { gradeQuestion } from '@ontologist/scenario-schema';
 import {
-  ANCHOR_NAME,
+  COMPETENCY_QUESTIONS,
+  DEBRIEF_TEXTS,
   ENTITIES,
   LABELS,
   ONTOLOGY_FACTS,
   PRODUCT_IDS,
   RECALLED_CLASS,
   STORE_ID,
+  questionPrompt,
   type ProtoEntity,
   type ScanFact,
 } from './protoCase';
@@ -62,11 +65,23 @@ export interface DebriefRow {
   readonly note: string;
 }
 
+export interface CompetencyResult {
+  readonly id: string;
+  readonly prompt: string;
+  readonly passed: boolean;
+}
+
 export interface DebriefView {
   readonly rows: readonly DebriefRow[];
   readonly anchorOutcome: string;
   readonly harm: boolean;
   readonly reworkNote: string;
+  /** #57 embryo: the hidden battery, graded structure-agnostically. */
+  readonly competency: {
+    readonly passed: number;
+    readonly total: number;
+    readonly results: readonly CompetencyResult[];
+  };
 }
 
 export interface ScanOutcome {
@@ -408,14 +423,25 @@ export class CaseSession {
     });
 
     const harm = rows.some((r) => r.verdict === 'harm');
+
+    // Grade the hidden competency battery against the player's model (#57):
+    // structure-agnostic by construction — only answers count.
+    const results: CompetencyResult[] = COMPETENCY_QUESTIONS.map((question) => ({
+      id: question.id,
+      prompt: questionPrompt(question),
+      passed: gradeQuestion(this.result, question).passed,
+    }));
+
     return {
       rows,
       harm,
-      anchorOutcome: harm
-        ? `${ANCHOR_NAME} — the shopper with the tree-nut allergy — bought the cleared product before the lab results arrived. “Unknown” was never “safe.”`
-        : `${ANCHOR_NAME} — the shopper with the tree-nut allergy — shopped safely. The uncertain product stayed off her cart until the lab spoke.`,
-      reworkNote:
-        'Field Verification resolved the unknowns without breaking your model — new evidence filled gaps the model had already marked. That is what a model that represents reality looks like.',
+      anchorOutcome: harm ? DEBRIEF_TEXTS.anchorHarm : DEBRIEF_TEXTS.anchorSafe,
+      reworkNote: DEBRIEF_TEXTS.rework,
+      competency: {
+        passed: results.filter((r) => r.passed).length,
+        total: results.length,
+        results,
+      },
     };
   }
 
