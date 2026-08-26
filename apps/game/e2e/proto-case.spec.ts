@@ -57,7 +57,8 @@ test('the recall case plays end to end with live inference', async ({ page }) =>
 
   await scanAt(page, 'product:berry-granola');
   await expect(page.getByTestId('status-product:berry-granola')).toContainText('safe');
-  await expect(page.getByTestId('case-complete')).toBeVisible();
+  // Wave 1 complete → the Act unlocks (Field Verification is its own spec).
+  await expect(page.getByTestId('file-report-open')).toBeVisible();
 
   // Journal: the inferred fact exists and explains itself down to evidence.
   await page.keyboard.press('j');

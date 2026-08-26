@@ -44,7 +44,7 @@ const STATUS_EMISSIVE: Record<ProductStatus, Color3> = {
   safe: new Color3(0.08, 0.3, 0.14),
 };
 
-function makeLabel(scene: Scene, entity: ProtoEntity, y: number): void {
+function makeLabel(scene: Scene, entity: ProtoEntity, y: number): Mesh {
   const texture = new DynamicTexture(`label-tex:${entity.id}`, { width: 512, height: 128 }, scene);
   texture.hasAlpha = true;
   texture.drawText(
@@ -68,6 +68,7 @@ function makeLabel(scene: Scene, entity: ProtoEntity, y: number): void {
   plane.billboardMode = Mesh.BILLBOARDMODE_ALL;
   plane.material = material;
   plane.isPickable = false;
+  return plane;
 }
 
 export function createScene(engine: Engine, canvas: HTMLCanvasElement): SceneApi {
@@ -108,17 +109,29 @@ export function createScene(engine: Engine, canvas: HTMLCanvasElement): SceneApi
   }
 
   // Scannables placed from case data (#41: placement is data-driven).
+  // Wave-2 evidence exists but stays hidden until Field Verification.
   const productMaterials = new Map<string, StandardMaterial>();
+  const waveTwoMeshes: Mesh[] = [];
   for (const entity of ENTITIES) {
     const isProduct = entity.kind === 'product';
+    const isWaveTwo = (entity.wave ?? 1) === 2;
     const mesh = isProduct
       ? MeshBuilder.CreateBox(entity.id, { width: 0.7, height: 0.9, depth: 0.5 }, scene)
       : MeshBuilder.CreateBox(entity.id, { width: 0.8, height: 0.08, depth: 0.6 }, scene);
-    mesh.position = new Vector3(entity.position[0], isProduct ? 1.45 : 0.95, entity.position[1]);
+    mesh.position = new Vector3(
+      entity.position[0],
+      isProduct ? 1.45 : isWaveTwo ? 0.4 : 0.95,
+      entity.position[1],
+    );
     const material = solid(`mat:${entity.id}`, isProduct ? WORLD.product : WORLD.document);
     mesh.material = material;
     if (isProduct) productMaterials.set(entity.id, material);
-    makeLabel(scene, entity, isProduct ? 2.35 : 1.7);
+    const label = makeLabel(scene, entity, isProduct ? 2.35 : isWaveTwo ? 1.15 : 1.7);
+    if (isWaveTwo) {
+      mesh.setEnabled(false);
+      label.setEnabled(false);
+      waveTwoMeshes.push(mesh, label);
+    }
   }
 
   // Player.
@@ -206,9 +219,11 @@ export function createScene(engine: Engine, canvas: HTMLCanvasElement): SceneApi
     camera.target = Vector3.Lerp(camera.target, player.position, 0.12);
 
     // Nearest scannable in reach → store (drives the HUD prompt + ring).
+    const phase = useGameStore.getState().phase;
     let nearest: ProtoEntity | null = null;
     let nearestDist = SCAN_RANGE;
     for (const entity of ENTITIES) {
+      if ((entity.wave ?? 1) === 2 && phase === 'investigate') continue;
       const d = Math.hypot(
         entity.position[0] - player.position.x,
         entity.position[1] - player.position.z,
@@ -228,14 +243,19 @@ export function createScene(engine: Engine, canvas: HTMLCanvasElement): SceneApi
   });
 
   // Engine verdict → world reaction (#43 embryo): product materials shift
-  // as the model learns what's affected, uncertain, or safe.
+  // as the model learns what's affected, uncertain, or safe. Field
+  // Verification makes the wave-2 evidence appear in the world.
   useGameStore.subscribe((state, prev) => {
-    if (state.productStatus === prev.productStatus) return;
-    for (const [productId, status] of Object.entries(state.productStatus)) {
-      const material = productMaterials.get(productId);
-      if (!material) continue;
-      material.emissiveColor = STATUS_EMISSIVE[status];
-      material.alpha = status === 'uncertain' ? 0.65 : 1; // textured fog stand-in
+    if (state.productStatus !== prev.productStatus) {
+      for (const [productId, status] of Object.entries(state.productStatus)) {
+        const material = productMaterials.get(productId);
+        if (!material) continue;
+        material.emissiveColor = STATUS_EMISSIVE[status];
+        material.alpha = status === 'uncertain' ? 0.65 : 1; // textured fog stand-in
+      }
+    }
+    if (state.phase !== prev.phase && state.phase !== 'investigate') {
+      for (const mesh of waveTwoMeshes) mesh.setEnabled(true);
     }
   });
 

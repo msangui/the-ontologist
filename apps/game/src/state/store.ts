@@ -1,9 +1,12 @@
 import { create } from 'zustand';
 import {
   CaseSession,
+  type CasePhase,
+  type DebriefView,
   type FactView,
   type ProductStatus,
   type QueryResultView,
+  type RecallDecision,
   type ScanOutcome,
 } from '../case/session';
 
@@ -29,7 +32,10 @@ export interface GameState {
   journal: readonly FactView[];
   contradictionCount: number;
   productStatus: Readonly<Record<string, ProductStatus>>;
-  caseComplete: boolean;
+  phase: CasePhase;
+  readyToCommit: boolean;
+  commitOpen: boolean;
+  debrief: DebriefView | null;
   lensCard: LensCardView | null;
   journalOpen: boolean;
   /** Scannable currently in reach (set by the scene each frame). */
@@ -49,6 +55,9 @@ export interface GameState {
   runContainsQuery: (objectId: string) => void;
   runSoldHereQuery: () => void;
   closeLens: () => void;
+  openCommit: () => void;
+  closeCommit: () => void;
+  fileReport: (decisions: Record<string, RecallDecision>) => void;
 }
 
 const session = new CaseSession();
@@ -62,7 +71,9 @@ const mirror = (outcome: ScanOutcome | null, prev: GameState): Partial<GameState
   journal: session.journal(),
   contradictionCount: session.contradictionCount(),
   productStatus: session.productStatuses(),
-  caseComplete: session.caseComplete(),
+  phase: session.phase,
+  readyToCommit: session.readyToCommit(),
+  debrief: session.debrief(),
   containsSlotOptions: session.containsSlotOptions(),
   lensCard: outcome
     ? {
@@ -88,6 +99,10 @@ export const useGameStore = create<GameState>((set) => ({
   journalOpen: false,
   nearbyId: null,
   nearbyLabel: null,
+  phase: session.phase,
+  readyToCommit: false,
+  commitOpen: false,
+  debrief: null,
   queryOpen: false,
   containsSlotOptions: session.containsSlotOptions(),
   queryResults: null,
@@ -116,4 +131,15 @@ export const useGameStore = create<GameState>((set) => ({
       querySentence: 'Which products are sold at FreshMart #12?',
     }),
   closeLens: () => set({ lensCard: null }),
+  openCommit: () => set({ commitOpen: true, lensCard: null, queryOpen: false }),
+  closeCommit: () => set({ commitOpen: false }),
+  fileReport: (decisions) =>
+    set((prev) => {
+      if (!session.commit(decisions)) return prev;
+      return {
+        ...mirror(null, prev),
+        commitOpen: false,
+        scannableCount: session.scannableCount,
+      };
+    }),
 }));

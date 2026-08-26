@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { LABELS, PRODUCT_IDS } from '../case/protoCase';
-import type { FactView, ProductStatus } from '../case/session';
+import {
+  CaseSession,
+  type FactView,
+  type ProductStatus,
+  type RecallDecision,
+} from '../case/session';
 import { useGameStore } from '../state/store';
 
 /**
@@ -224,6 +229,181 @@ function AskPanel() {
   );
 }
 
+/**
+ * The Commit beat (#53 embryo): file the recall report. Every Act shows its
+ * Consequence Preview before committing [I4-D1]; the uncertain product is a
+ * forced choice — hold (unknown stays unknown) or clear (unknown treated as
+ * false), the designed harm beat [I5-D3].
+ */
+function CommitPanel() {
+  const productStatus = useGameStore((s) => s.productStatus);
+  const closeCommit = useGameStore((s) => s.closeCommit);
+  const fileReport = useGameStore((s) => s.fileReport);
+  const [choices, setChoices] = useState<Record<string, 'hold' | 'clear'>>({});
+
+  const decisionFor = (id: string): RecallDecision | null => {
+    const status = productStatus[id] ?? 'pending';
+    if (status === 'affected') return 'pull';
+    if (status === 'safe') return 'leave';
+    return choices[id] ?? null;
+  };
+  const allDecided = PRODUCT_IDS.every((id) => decisionFor(id) !== null);
+
+  return (
+    <div
+      data-testid="commit-panel"
+      style={{
+        ...panel,
+        position: 'absolute',
+        top: '50%',
+        left: '50%',
+        transform: 'translate(-50%, -50%)',
+        width: 460,
+        padding: '14px 16px',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+        <strong>File the recall report</strong>
+        <button
+          type="button"
+          onClick={closeCommit}
+          style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 14 }}
+          aria-label="Close"
+        >
+          ✕
+        </button>
+      </div>
+      <div style={{ color: '#7a7062', margin: '4px 0 10px' }}>
+        The report goes to Field Verification: the lab tests everything you flag. This preview is
+        what the model predicts — commit when you stand behind it.
+      </div>
+      <ul style={{ margin: 0, padding: 0 }}>
+        {PRODUCT_IDS.map((id) => {
+          const status = productStatus[id] ?? 'pending';
+          const badge = STATUS_BADGE[status];
+          const decision = decisionFor(id);
+          return (
+            <li key={id} style={{ listStyle: 'none', marginBottom: 10 }}>
+              <span style={{ color: badge.color, marginRight: 6 }} aria-hidden>
+                {badge.glyph}
+              </span>
+              <strong>{LABELS[id]}</strong>{' '}
+              <span style={{ color: badge.color }}>({badge.word})</span>
+              <div style={{ marginLeft: 20, marginTop: 2 }}>
+                {status === 'uncertain' ? (
+                  <span data-testid={`decision-${id}`}>
+                    <label style={{ marginRight: 12, cursor: 'pointer' }}>
+                      <input
+                        type="radio"
+                        name={`decision-${id}`}
+                        data-testid={`decision-${id}-hold`}
+                        checked={choices[id] === 'hold'}
+                        onChange={() => setChoices((c) => ({ ...c, [id]: 'hold' }))}
+                      />{' '}
+                      Hold for testing
+                    </label>
+                    <label style={{ cursor: 'pointer' }}>
+                      <input
+                        type="radio"
+                        name={`decision-${id}`}
+                        data-testid={`decision-${id}-clear`}
+                        checked={choices[id] === 'clear'}
+                        onChange={() => setChoices((c) => ({ ...c, [id]: 'clear' }))}
+                      />{' '}
+                      Clear for sale
+                    </label>
+                  </span>
+                ) : (
+                  <em>{decision === 'pull' ? 'Pull from sale' : 'Leave as is'}</em>
+                )}
+                <div style={{ color: '#7a7062', fontSize: 12, marginTop: 2 }}>
+                  → {decision ? CaseSession.previewOf(decision, status) : 'choose an action'}
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      <button
+        type="button"
+        data-testid="file-report"
+        disabled={!allDecided}
+        onClick={() => {
+          const decisions: Record<string, RecallDecision> = {};
+          for (const id of PRODUCT_IDS) decisions[id] = decisionFor(id)!;
+          fileReport(decisions);
+        }}
+        style={{
+          marginTop: 6,
+          padding: '6px 16px',
+          borderRadius: 8,
+          border: '1px solid #2b5a78',
+          background: '#2b5a78',
+          color: '#fff',
+          cursor: allDecided ? 'pointer' : 'not-allowed',
+          opacity: allDecided ? 1 : 0.5,
+        }}
+      >
+        Commit — send to Field Verification
+      </button>
+    </div>
+  );
+}
+
+/** The Debrief (#60 embryo): the in-fiction report card. */
+function DebriefPanel() {
+  const debrief = useGameStore((s) => s.debrief);
+  if (!debrief) return null;
+  return (
+    <div
+      data-testid="debrief-panel"
+      style={{
+        ...panel,
+        position: 'absolute',
+        top: '50%',
+        left: '50%',
+        transform: 'translate(-50%, -50%)',
+        width: 480,
+        maxHeight: '70vh',
+        overflowY: 'auto',
+        padding: '14px 16px',
+      }}
+    >
+      <strong>Case Debrief — The Recall at FreshMart</strong>
+      <ul style={{ margin: '10px 0 0', padding: 0 }}>
+        {debrief.rows.map((row) => (
+          <li
+            key={row.entityId}
+            data-testid={`debrief-${row.entityId}`}
+            style={{ listStyle: 'none', marginBottom: 8 }}
+          >
+            <span
+              style={{ color: row.verdict === 'harm' ? '#8c2f26' : '#2f6b3f', marginRight: 6 }}
+              aria-hidden
+            >
+              {row.verdict === 'harm' ? '⚠' : '✓'}
+            </span>
+            <strong>{row.label}</strong> — {row.fieldResult}.
+            <div style={{ marginLeft: 20, color: '#5a4c3a', fontSize: 12 }}>{row.note}</div>
+          </li>
+        ))}
+      </ul>
+      <div
+        data-testid="debrief-anchor"
+        style={{
+          marginTop: 10,
+          padding: '8px 10px',
+          borderLeft: `3px solid ${debrief.harm ? '#8c2f26' : '#2f6b3f'}`,
+          background: 'rgba(90,70,50,0.06)',
+        }}
+      >
+        {debrief.anchorOutcome}
+      </div>
+      <div style={{ marginTop: 8, color: '#7a7062', fontSize: 12 }}>{debrief.reworkNote}</div>
+    </div>
+  );
+}
+
 export function App() {
   const state = useGameStore();
 
@@ -243,11 +423,16 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const objective = state.caseComplete
-    ? 'Case status determined. Field Verification would come next — nice work.'
-    : state.scannedIds.includes('doc:recall-notice')
-      ? 'Work out which shelf products are affected by the recall.'
-      : 'A recall notice arrived — find it in the backroom (west desk).';
+  const objective =
+    state.phase === 'debrief'
+      ? 'Case closed — read the Debrief.'
+      : state.phase === 'verification'
+        ? 'Field Verification: the lab results just arrived — find the courier drop near the desk.'
+        : state.readyToCommit
+          ? 'Every product is accounted for — file the recall report (top right).'
+          : state.scannedIds.includes('doc:recall-notice')
+            ? 'Work out which shelf products are affected by the recall.'
+            : 'A recall notice arrived — find it in the backroom (west desk).';
 
   return (
     <>
@@ -312,12 +497,34 @@ export function App() {
             );
           })}
         </ul>
-        {state.caseComplete && (
+        {state.readyToCommit && (
+          <button
+            type="button"
+            data-testid="file-report-open"
+            onClick={state.openCommit}
+            style={{
+              marginTop: 8,
+              padding: '6px 14px',
+              borderRadius: 8,
+              border: '1px solid #2b5a78',
+              background: '#2b5a78',
+              color: '#fff',
+              cursor: 'pointer',
+            }}
+          >
+            File recall report…
+          </button>
+        )}
+        {state.phase === 'debrief' && (
           <div data-testid="case-complete" style={{ marginTop: 8, color: '#2f6b3f' }}>
-            ✓ All products accounted for — and “unknown” was not treated as “safe”.
+            ✓ Case closed after Field Verification.
           </div>
         )}
       </div>
+
+      {/* Commit + Debrief beats. */}
+      {state.commitOpen && <CommitPanel />}
+      {state.phase === 'debrief' && <DebriefPanel />}
 
       {/* Lens card (§14.4 embryo). */}
       {state.lensCard && (

@@ -13,6 +13,7 @@ import {
   type TruthValue,
 } from '@ontologist/semantic-engine';
 import {
+  ANCHOR_NAME,
   ENTITIES,
   LABELS,
   ONTOLOGY_FACTS,
@@ -42,6 +43,31 @@ export interface FactView {
 }
 
 export type ProductStatus = 'pending' | 'affected' | 'uncertain' | 'safe';
+
+/**
+ * Case Arc (#56 embryo): Brief → Wave 1 (investigate) → Commit →
+ * Field Verification (wave-2 evidence) → Resolve → Debrief.
+ */
+export type CasePhase = 'investigate' | 'verification' | 'debrief';
+
+/** The Act (#53 embryo): what to do with each product when filing the report. */
+export type RecallDecision = 'pull' | 'hold' | 'clear' | 'leave';
+
+export interface DebriefRow {
+  readonly entityId: string;
+  readonly label: string;
+  readonly decision: RecallDecision;
+  readonly fieldResult: string;
+  readonly verdict: 'right' | 'harm';
+  readonly note: string;
+}
+
+export interface DebriefView {
+  readonly rows: readonly DebriefRow[];
+  readonly anchorOutcome: string;
+  readonly harm: boolean;
+  readonly reworkNote: string;
+}
 
 export interface ScanOutcome {
   readonly entity: ProtoEntity;
@@ -77,9 +103,23 @@ export class CaseSession {
   private result: InferenceResult;
   private seq = 0;
 
+  private currentPhase: CasePhase = 'investigate';
+  private decisions: Record<string, RecallDecision> = {};
+
   constructor() {
     for (const fact of ONTOLOGY_FACTS) this.assert(fact, { kind: 'scenario' });
     this.result = infer(this.log);
+  }
+
+  get phase(): CasePhase {
+    return this.currentPhase;
+  }
+
+  /** An entity exists in the world only once its wave has arrived. */
+  isAvailable(entityId: string): boolean {
+    const entity = this.entities.get(entityId);
+    if (!entity) return false;
+    return (entity.wave ?? 1) === 1 || this.currentPhase !== 'investigate';
   }
 
   private assert(fact: ScanFact, provenance: Assertion['provenance']): void {
@@ -102,12 +142,12 @@ export class CaseSession {
   }
 
   get scannableCount(): number {
-    return this.entities.size;
+    return [...this.entities.keys()].filter((id) => this.isAvailable(id)).length;
   }
 
   scan(entityId: string): ScanOutcome | null {
     const entity = this.entities.get(entityId);
-    if (!entity) return null;
+    if (!entity || !this.isAvailable(entityId)) return null;
 
     if (this.scanned.has(entityId)) {
       return { entity, learned: [], inferred: [] };
@@ -127,6 +167,12 @@ export class CaseSession {
     const inferred = this.result.derived
       .filter((f) => !derivedBefore.has(f.id))
       .map((f) => this.viewOfDerived(f.id, f));
+
+    // Resolve: scanning the Field Verification evidence closes the case.
+    if (this.currentPhase === 'verification' && (entity.wave ?? 1) === 2) {
+      this.currentPhase = 'debrief';
+    }
+
     return { entity, learned, inferred };
   }
 
@@ -225,9 +271,9 @@ export class CaseSession {
       }
     }
 
-    const allDocsScanned = ENTITIES.filter((e) => e.kind === 'document').every((e) =>
-      this.scanned.has(e.id),
-    );
+    const allDocsScanned = ENTITIES.filter(
+      (e) => e.kind === 'document' && (e.wave ?? 1) === 1,
+    ).every((e) => this.scanned.has(e.id));
 
     const statuses: Record<string, ProductStatus> = {};
     for (const productId of PRODUCT_IDS) {
@@ -248,8 +294,80 @@ export class CaseSession {
     return statuses;
   }
 
-  caseComplete(): boolean {
-    return Object.values(this.productStatuses()).every((s) => s !== 'pending');
+  /** Wave 1 is done when every product has a determination — time to Act. */
+  readyToCommit(): boolean {
+    return (
+      this.currentPhase === 'investigate' &&
+      Object.values(this.productStatuses()).every((s) => s !== 'pending')
+    );
+  }
+
+  /**
+   * Commit the recall report (#53 embryo). The interesting decision is the
+   * uncertain product: hold it (unknown stays unknown) or clear it (treating
+   * unknown as false) — [I5-D3]'s designed harm beat.
+   */
+  commit(decisions: Record<string, RecallDecision>): boolean {
+    if (!this.readyToCommit()) return false;
+    for (const productId of PRODUCT_IDS) {
+      if (!decisions[productId]) return false;
+    }
+    this.decisions = { ...decisions };
+    this.currentPhase = 'verification';
+    return true;
+  }
+
+  /** Consequence Preview lines (§3.1): what the model predicts per decision. */
+  static previewOf(decision: RecallDecision, status: ProductStatus): string {
+    if (decision === 'pull') return 'removed from sale; recall notice posted at the shelf';
+    if (decision === 'hold') return 'moved to the backroom until the lab confirms either way';
+    if (decision === 'clear')
+      return status === 'uncertain'
+        ? 'stays on sale — if the lab disagrees, customers are exposed'
+        : 'stays on sale';
+    return 'no action — stays as is';
+  }
+
+  debrief(): DebriefView | null {
+    if (this.currentPhase !== 'debrief') return null;
+
+    const finalStatus = this.productStatuses();
+    const rows: DebriefRow[] = PRODUCT_IDS.map((productId) => {
+      const label = LABELS[productId] ?? productId;
+      const decision = this.decisions[productId] ?? 'leave';
+      const nowAffected = finalStatus[productId] === 'affected';
+      const wasCleared = decision === 'clear' || decision === 'leave';
+      const harm = nowAffected && wasCleared;
+      const fieldResult = nowAffected
+        ? 'the lab confirmed it contains the recalled ingredient'
+        : 'the lab found no recalled ingredient';
+      const note = harm
+        ? `Cleared while the model said “unknown” — it was on sale when the lab results landed.`
+        : nowAffected
+          ? decision === 'pull'
+            ? 'Pulled before verification — exactly right.'
+            : 'Held until the lab confirmed — nobody was exposed.'
+          : 'No action needed, and none taken.';
+      return {
+        entityId: productId,
+        label,
+        decision,
+        fieldResult,
+        verdict: harm ? 'harm' : 'right',
+        note,
+      };
+    });
+
+    const harm = rows.some((r) => r.verdict === 'harm');
+    return {
+      rows,
+      harm,
+      anchorOutcome: harm
+        ? `${ANCHOR_NAME} — the shopper with the tree-nut allergy — bought the cleared product before the lab results arrived. “Unknown” was never “safe.”`
+        : `${ANCHOR_NAME} — the shopper with the tree-nut allergy — shopped safely. The uncertain product stayed off her cart until the lab spoke.`,
+      reworkNote:
+        'Field Verification resolved the unknowns without breaking your model — new evidence filled gaps the model had already marked. That is what a model that represents reality looks like.',
+    };
   }
 
   // --- The Test verb: sentence-based queries over the model (#27/#51) -----
