@@ -24,14 +24,16 @@ import {
   STORE_ID,
   questionPrompt,
   type ProtoEntity,
-  type ScanFact,
 } from './protoCase';
 
 /**
- * The proto-case play session: the game-validation layer in miniature
- * (backlog #42/#56 embryo). Scans append assertions to the event-sourced log,
- * inference re-runs, and the UI reads humanized views. No Babylon, no React —
- * this module could run in the text harness (#33) unchanged.
+ * The proto-case play session — now with the Model verb (backlog #49 embryo):
+ * scanning captures CLUES (leads); the player RECORDS them into the model,
+ * choosing the truth value for ambiguous evidence. Inference, statuses,
+ * queries, and competency grading all run against the model the player
+ * actually built — a wrong recording produces wrong verdicts, self-made
+ * contradictions, and a worse Debrief. Unlimited undo (#61) rides the
+ * event-sourced log for free. No Babylon, no React — text-harness ready.
  */
 
 export interface FactView {
@@ -43,6 +45,18 @@ export interface FactView {
   readonly source?: string;
   /** Ground-evidence texts supporting an inferred fact ("why?"). */
   readonly explanation?: readonly string[];
+}
+
+/** One piece of evidence the player may record into the model. */
+export interface ClueView {
+  readonly id: string;
+  readonly sourceId: string;
+  readonly sourceLabel: string;
+  readonly text: string;
+  /** The player must choose the truth when recording an ambiguous clue. */
+  readonly ambiguous: boolean;
+  /** Set once recorded (the truth the player committed to). */
+  readonly recordedTruth?: TruthValue;
 }
 
 export type ProductStatus = 'pending' | 'affected' | 'uncertain' | 'safe';
@@ -86,9 +100,8 @@ export interface DebriefView {
 
 export interface ScanOutcome {
   readonly entity: ProtoEntity;
-  /** What this scan recorded, plus what the engine newly concluded. */
-  readonly learned: readonly FactView[];
-  readonly inferred: readonly FactView[];
+  /** The leads this evidence offers (record them to build the model). */
+  readonly clues: readonly ClueView[];
 }
 
 const label = (value: string | number | boolean): string =>
@@ -104,27 +117,45 @@ const PREDICATE_TEXT: Record<string, string> = {
   [VOCAB.transitiveProperty]: 'chains through parts',
 };
 
-const factText = (f: Fact): string => {
+const factText = (f: {
+  subject: string;
+  predicate: string;
+  object: string | number | boolean;
+}): string => {
   if (f.predicate === VOCAB.transitiveProperty)
     return `“${label(f.subject)}” carries through parts`;
   const verb = PREDICATE_TEXT[f.predicate] ?? f.predicate;
   return `${label(f.subject)} ${verb} ${label(f.object)}`;
 };
 
+interface ClueState {
+  readonly id: string;
+  readonly sourceId: string;
+  readonly factIndex: number;
+  recordedTruth?: TruthValue;
+  assertionId?: string;
+}
+
 /** Versioned save shape (#62): the assertion log IS the model save (§18.7). */
 export interface CaseSnapshot {
-  readonly saveVersion: 1;
+  readonly saveVersion: 2;
   readonly log: string;
   readonly scannedIds: readonly string[];
   readonly phase: CasePhase;
   readonly decisions: Readonly<Record<string, RecallDecision>>;
   readonly seq: number;
+  /** [clueId, recordedTruth, assertionId] for every recorded clue. */
+  readonly recorded: readonly [string, TruthValue, string][];
+  /** Recording order — the undo stack. */
+  readonly order: readonly string[];
 }
 
 export class CaseSession {
   private readonly log: AssertionLog;
   private readonly entities = new Map(ENTITIES.map((e) => [e.id, e]));
   private readonly scanned = new Set<string>();
+  private readonly clues = new Map<string, ClueState>();
+  private recordedOrder: string[] = [];
   private result: InferenceResult;
   private seq = 0;
 
@@ -138,21 +169,43 @@ export class CaseSession {
       this.currentPhase = snapshot.phase;
       this.decisions = { ...snapshot.decisions };
       this.seq = snapshot.seq;
+      for (const entityId of this.scanned) this.registerClues(entityId);
+      for (const [clueId, truth, assertionId] of snapshot.recorded) {
+        const clue = this.clues.get(clueId);
+        if (clue) {
+          clue.recordedTruth = truth;
+          clue.assertionId = assertionId;
+        }
+      }
+      this.recordedOrder = [...snapshot.order];
     } else {
       this.log = new AssertionLog();
-      for (const fact of ONTOLOGY_FACTS) this.assert(fact, { kind: 'scenario' });
+      for (const fact of ONTOLOGY_FACTS) {
+        this.log.assert({
+          id: `f:${(this.seq += 1)}`,
+          subject: fact.subject,
+          predicate: fact.predicate,
+          object: fact.object,
+          truth: fact.truth ?? 'true',
+          provenance: { kind: 'scenario' },
+        });
+      }
     }
     this.result = infer(this.log);
   }
 
   snapshot(): CaseSnapshot {
     return {
-      saveVersion: 1,
+      saveVersion: 2,
       log: this.log.serialize(),
       scannedIds: [...this.scanned],
       phase: this.currentPhase,
       decisions: { ...this.decisions },
       seq: this.seq,
+      recorded: [...this.clues.values()]
+        .filter((clue) => clue.recordedTruth && clue.assertionId)
+        .map((clue) => [clue.id, clue.recordedTruth!, clue.assertionId!]),
+      order: [...this.recordedOrder],
     };
   }
 
@@ -162,9 +215,10 @@ export class CaseSession {
       const snap = snapshot as CaseSnapshot;
       if (
         !snap ||
-        snap.saveVersion !== 1 ||
+        snap.saveVersion !== 2 ||
         typeof snap.log !== 'string' ||
         !Array.isArray(snap.scannedIds) ||
+        !Array.isArray(snap.recorded) ||
         typeof snap.seq !== 'number'
       ) {
         return null;
@@ -186,17 +240,6 @@ export class CaseSession {
     return (entity.wave ?? 1) === 1 || this.currentPhase !== 'investigate';
   }
 
-  private assert(fact: ScanFact, provenance: Assertion['provenance']): void {
-    this.log.assert({
-      id: `f:${(this.seq += 1)}`,
-      subject: fact.subject,
-      predicate: fact.predicate,
-      object: fact.object,
-      truth: fact.truth ?? 'true',
-      provenance,
-    });
-  }
-
   isScanned(entityId: string): boolean {
     return this.scanned.has(entityId);
   }
@@ -209,35 +252,113 @@ export class CaseSession {
     return [...this.entities.keys()].filter((id) => this.isAvailable(id)).length;
   }
 
+  // --- Investigate: scanning captures leads -------------------------------
+
+  private registerClues(entityId: string): void {
+    const entity = this.entities.get(entityId);
+    if (!entity) return;
+    entity.scanFacts.forEach((_, index) => {
+      const id = `${entityId}#${index}`;
+      if (!this.clues.has(id)) {
+        this.clues.set(id, { id, sourceId: entityId, factIndex: index });
+      }
+    });
+  }
+
   scan(entityId: string): ScanOutcome | null {
     const entity = this.entities.get(entityId);
     if (!entity || !this.isAvailable(entityId)) return null;
-
-    if (this.scanned.has(entityId)) {
-      return { entity, learned: [], inferred: [] };
-    }
     this.scanned.add(entityId);
+    this.registerClues(entityId);
+    return { entity, clues: this.cluesOf(entityId) };
+  }
 
-    const derivedBefore = new Set(this.result.derived.map((f) => f.id));
-    const baseBefore = new Set(this.result.base.map((f) => f.id));
-    for (const fact of entity.scanFacts) {
-      this.assert(fact, { kind: 'evidence', evidenceId: entityId });
-    }
+  private clueView(state: ClueState): ClueView {
+    const entity = this.entities.get(state.sourceId)!;
+    const fact = entity.scanFacts[state.factIndex]!;
+    return {
+      id: state.id,
+      sourceId: state.sourceId,
+      sourceLabel: entity.label,
+      text: factText(fact),
+      ambiguous: fact.ambiguous ?? false,
+      ...(state.recordedTruth ? { recordedTruth: state.recordedTruth } : {}),
+    };
+  }
+
+  cluesOf(entityId: string): ClueView[] {
+    return [...this.clues.values()]
+      .filter((clue) => clue.sourceId === entityId)
+      .map((clue) => this.clueView(clue));
+  }
+
+  /** Every unrecorded clue from scanned evidence — the player's to-model list. */
+  leads(): ClueView[] {
+    return [...this.clues.values()]
+      .filter((clue) => !clue.recordedTruth)
+      .map((clue) => this.clueView(clue));
+  }
+
+  // --- Model: the player records clues into the model ---------------------
+
+  /**
+   * Record a clue as a model fact. Ambiguous clues REQUIRE the player's
+   * truth choice — recording "false" where the evidence says "can't tell"
+   * is exactly the unknown-vs-false mistake [I5-D3], and the model will
+   * faithfully carry it.
+   */
+  recordClue(clueId: string, chosenTruth?: TruthValue): boolean {
+    if (this.currentPhase === 'debrief') return false;
+    const clue = this.clues.get(clueId);
+    if (!clue || clue.recordedTruth) return false;
+    const entity = this.entities.get(clue.sourceId)!;
+    const fact = entity.scanFacts[clue.factIndex]!;
+    if (fact.ambiguous && !chosenTruth) return false;
+
+    const truth = fact.ambiguous ? chosenTruth! : (fact.truth ?? 'true');
+    const assertionId = `f:${(this.seq += 1)}`;
+    this.log.assert({
+      id: assertionId,
+      subject: fact.subject,
+      predicate: fact.predicate,
+      object: fact.object,
+      truth,
+      provenance: { kind: 'evidence', evidenceId: clue.sourceId },
+    });
+    clue.recordedTruth = truth;
+    clue.assertionId = assertionId;
+    this.recordedOrder.push(clueId);
     this.result = infer(this.log);
+    return true;
+  }
 
-    const learned = this.result.base
-      .filter((f) => !baseBefore.has(f.id))
-      .map((f) => this.viewOfBase(f));
-    const inferred = this.result.derived
-      .filter((f) => !derivedBefore.has(f.id))
-      .map((f) => this.viewOfDerived(f.id, f));
-
-    // Resolve: scanning the Field Verification evidence closes the case.
-    if (this.currentPhase === 'verification' && (entity.wave ?? 1) === 2) {
-      this.currentPhase = 'debrief';
+  /** Record every unambiguous clue from one evidence source. */
+  recordAllFrom(entityId: string): number {
+    let recorded = 0;
+    for (const clue of this.clues.values()) {
+      if (clue.sourceId !== entityId || clue.recordedTruth) continue;
+      const fact = this.entities.get(entityId)!.scanFacts[clue.factIndex]!;
+      if (fact.ambiguous) continue; // ambiguity is always the player's call
+      if (this.recordClue(clue.id)) recorded += 1;
     }
+    return recorded;
+  }
 
-    return { entity, learned, inferred };
+  get canUndo(): boolean {
+    return this.currentPhase !== 'debrief' && this.recordedOrder.length > 0;
+  }
+
+  /** Unlimited undo (#61): retract the last recording, un-derive its consequences. */
+  undo(): boolean {
+    if (!this.canUndo) return false;
+    const clueId = this.recordedOrder.pop()!;
+    const clue = this.clues.get(clueId);
+    if (!clue?.assertionId) return false;
+    this.log.retract(clue.assertionId);
+    delete clue.recordedTruth;
+    delete clue.assertionId;
+    this.result = infer(this.log);
+    return true;
   }
 
   private viewOfBase(assertion: Assertion): FactView {
@@ -286,7 +407,7 @@ export class CaseSession {
     return [...new Set(lines)];
   }
 
-  /** Everything the Journal shows: evidence facts first, then inferences. */
+  /** The model the player built: recorded facts, then inferences. */
   journal(): FactView[] {
     const base = this.result.base
       .filter((a) => a.provenance.kind === 'evidence')
@@ -316,16 +437,20 @@ export class CaseSession {
     };
 
     const keys = new Set(
-      this.result.contradictions.map((c) => {
+      this.result.contradictions.map((contradiction) => {
         const evidence = new Set<string>();
-        for (const id of c.factIds) collectEvidence(id, evidence);
+        for (const id of contradiction.factIds) collectEvidence(id, evidence);
         return [...evidence].sort().join('~');
       }),
     );
     return keys.size;
   }
 
-  /** The case question: which products are affected by the recall? */
+  /**
+   * The case question, answered by the PLAYER'S model: a product can only be
+   * called safe once the recall is in the model, the wave-1 documents are
+   * scanned, and the product's own clues are all recorded.
+   */
   productStatuses(): Record<string, ProductStatus> {
     const recalled = new Set<string>();
     const all = [...this.result.base, ...this.result.derived];
@@ -338,6 +463,11 @@ export class CaseSession {
     const allDocsScanned = ENTITIES.filter(
       (e) => e.kind === 'document' && (e.wave ?? 1) === 1,
     ).every((e) => this.scanned.has(e.id));
+
+    const cluesRecorded = (entityId: string): boolean =>
+      [...this.clues.values()]
+        .filter((clue) => clue.sourceId === entityId)
+        .every((clue) => clue.recordedTruth);
 
     const statuses: Record<string, ProductStatus> = {};
     for (const productId of PRODUCT_IDS) {
@@ -352,8 +482,14 @@ export class CaseSession {
       );
       if (hasRecalledTrue) statuses[productId] = 'affected';
       else if (hasRecalledUnknown) statuses[productId] = 'uncertain';
-      else if (this.scanned.has(productId) && allDocsScanned) statuses[productId] = 'safe';
-      else statuses[productId] = 'pending';
+      else if (
+        recalled.size > 0 &&
+        allDocsScanned &&
+        this.scanned.has(productId) &&
+        cluesRecorded(productId)
+      ) {
+        statuses[productId] = 'safe';
+      } else statuses[productId] = 'pending';
     }
     return statuses;
   }
@@ -392,12 +528,30 @@ export class CaseSession {
     return 'no action — stays as is';
   }
 
+  /** Field Verification resolves once the lab's findings are in the model. */
+  canCloseCase(): boolean {
+    if (this.currentPhase !== 'verification') return false;
+    const waveTwoScanned = ENTITIES.filter((e) => (e.wave ?? 1) === 2 && this.scanned.has(e.id));
+    if (waveTwoScanned.length === 0) return false;
+    return waveTwoScanned.every((entity) =>
+      [...this.clues.values()]
+        .filter((clue) => clue.sourceId === entity.id)
+        .every((clue) => clue.recordedTruth),
+    );
+  }
+
+  closeCase(): boolean {
+    if (!this.canCloseCase()) return false;
+    this.currentPhase = 'debrief';
+    return true;
+  }
+
   debrief(): DebriefView | null {
     if (this.currentPhase !== 'debrief') return null;
 
     const finalStatus = this.productStatuses();
     const rows: DebriefRow[] = PRODUCT_IDS.map((productId) => {
-      const label = LABELS[productId] ?? productId;
+      const productLabel = LABELS[productId] ?? productId;
       const decision = this.decisions[productId] ?? 'leave';
       const nowAffected = finalStatus[productId] === 'affected';
       const wasCleared = decision === 'clear' || decision === 'leave';
@@ -406,7 +560,7 @@ export class CaseSession {
         ? 'the lab confirmed it contains the recalled ingredient'
         : 'the lab found no recalled ingredient';
       const note = harm
-        ? `Cleared while the model said “unknown” — it was on sale when the lab results landed.`
+        ? 'It was on sale when the lab results landed — the model never justified clearing it.'
         : nowAffected
           ? decision === 'pull'
             ? 'Pulled before verification — exactly right.'
@@ -414,7 +568,7 @@ export class CaseSession {
           : 'No action needed, and none taken.';
       return {
         entityId: productId,
-        label,
+        label: productLabel,
         decision,
         fieldResult,
         verdict: harm ? 'harm' : 'right',

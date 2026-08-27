@@ -1,61 +1,45 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import { ready, scanAndChoose, scanAndRecordAll } from './helpers';
 
 /**
- * Playthrough of the proto recall case: teleport near each scannable
- * (debug hook), scan with E, and assert the engine's verdicts reach the UI —
- * the affected chain, the unknown-vs-false "uncertain", the contradiction
- * red thread, and the explanation trace.
+ * Wave 1 with the Model verb: scanning yields leads, RECORDING builds the
+ * model, and only the recorded model drives inference, statuses, threads,
+ * and the unlocked Act.
  */
-
-async function scanAt(page: Page, entityId: string): Promise<void> {
-  const teleported = await page.evaluate(
-    (id) => window.__ontologist!.debug.teleportTo(id),
-    entityId,
-  );
-  expect(teleported).toBe(true);
-  await page.waitForFunction(
-    (id) => (window.__ontologist!.getState() as { nearbyId: string | null }).nearbyId === id,
-    entityId,
-  );
-  await page.keyboard.press('e');
-  await page.waitForFunction(
-    (id) =>
-      (window.__ontologist!.getState() as { scannedIds: readonly string[] }).scannedIds.includes(
-        id,
-      ),
-    entityId,
-  );
-  await page.keyboard.press('Escape'); // close the lens card between scans
-}
-
 test('the recall case plays end to end with live inference', async ({ page }) => {
   await page.goto('/');
-  await page.waitForFunction(() => window.__ontologist?.ready === true, undefined, {
-    timeout: 30_000,
-  });
+  await ready(page);
 
   // Everything starts undetermined.
   await expect(page.getByTestId('status-product:choco-oat-bites')).toContainText('undetermined');
 
-  // Investigate: notice → manifest → shelf products.
-  await scanAt(page, 'doc:recall-notice');
+  await scanAndRecordAll(page, 'doc:recall-notice');
   await expect(page.getByTestId('objective')).toContainText('which shelf products');
 
-  await scanAt(page, 'doc:delivery-manifest');
-  await scanAt(page, 'product:choco-oat-bites');
+  await scanAndRecordAll(page, 'doc:delivery-manifest');
+  await scanAndRecordAll(page, 'product:choco-oat-bites');
 
-  // The engine derived the transitive chain: product → mix → recalled paste.
+  // The engine derived the transitive chain from the RECORDED facts.
   await expect(page.getByTestId('status-product:choco-oat-bites')).toContainText('AFFECTED');
 
-  // Unknown ≠ false: the smudged label leaves Trail Crunch UNCERTAIN, not safe.
-  await scanAt(page, 'product:trail-crunch');
+  // Undo (#61): retract the last recording and the verdict un-derives.
+  await page.getByTestId('undo-record').click();
+  await expect(page.getByTestId('status-product:choco-oat-bites')).not.toContainText('AFFECTED');
+  // Re-record it from the Journal's leads section.
+  await page.keyboard.press('j');
+  await page.getByTestId('journal-leads').locator('[data-testid$="-record"]').first().click();
+  await expect(page.getByTestId('status-product:choco-oat-bites')).toContainText('AFFECTED');
+  await page.keyboard.press('j');
+
+  // Unknown ≠ false: the smudged label is the player's call — record unknown.
+  await scanAndChoose(page, 'product:trail-crunch', 0, 'unknown');
   await expect(page.getByTestId('status-product:trail-crunch')).toContainText('UNCERTAIN');
 
   // Sunny Pops: shelf tag contradicts the manifest → one red thread.
-  await scanAt(page, 'product:sunny-pops');
+  await scanAndRecordAll(page, 'product:sunny-pops');
   await expect(page.getByTestId('thread-count')).toContainText('1 red thread');
 
-  await scanAt(page, 'product:berry-granola');
+  await scanAndRecordAll(page, 'product:berry-granola');
   await expect(page.getByTestId('status-product:berry-granola')).toContainText('safe');
   // Wave 1 complete → the Act unlocks (Field Verification is its own spec).
   await expect(page.getByTestId('file-report-open')).toBeVisible();
@@ -73,17 +57,3 @@ test('the recall case plays end to end with live inference', async ({ page }) =>
   await expect(trace).toContainText('Choco Oat Bites contains Choco Base Mix');
   await expect(trace).toContainText('Choco Base Mix contains Hazelnut Paste');
 });
-
-declare global {
-  interface Window {
-    __ontologist?: {
-      ready: boolean;
-      webgl2: boolean;
-      getState: () => unknown;
-      debug: {
-        teleportTo: (entityId: string) => boolean;
-        getPlayerPosition: () => { x: number; z: number };
-      };
-    };
-  }
-}

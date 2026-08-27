@@ -20,6 +20,11 @@ export const factSchema = z.object({
   predicate: z.string().min(1),
   object: z.union([z.string(), z.number(), z.boolean()]),
   truth: truthValueSchema.optional(),
+  /**
+   * Ambiguous evidence: the player must choose the truth value when
+   * recording this clue (the authored `truth` is the intended reading).
+   */
+  ambiguous: z.boolean().optional(),
 });
 
 /** Query IR terms — mirrors @ontologist/semantic-engine's Term/Pattern. */

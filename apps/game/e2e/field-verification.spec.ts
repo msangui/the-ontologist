@@ -1,62 +1,45 @@
 import { expect, test, type Page } from '@playwright/test';
+import { ready, scanAndChoose, scanAndRecordAll } from './helpers';
 
 /**
- * The signature mechanic: Commit → Field Verification → Debrief.
- * Two runs of the uncertain-product decision:
- * - HOLD (unknown stays unknown) → the lab confirms contamination, nobody hurt.
- * - CLEAR (unknown treated as false) → visible harm to the human anchor.
+ * The signature mechanic under the Model verb: how the player RECORDS the
+ * ambiguous clue shapes the whole case.
+ * - Record it UNKNOWN → uncertain → hold → the lab confirms → nobody hurt.
+ * - Record it FALSE (unknown-vs-false mistake) → "safe" → left on sale →
+ *   the lab contradicts the player's own model → visible harm.
  */
 
-async function scanAt(page: Page, entityId: string): Promise<void> {
-  await page.evaluate((id) => window.__ontologist!.debug.teleportTo(id), entityId);
-  await page.waitForFunction(
-    (id) => (window.__ontologist!.getState() as { nearbyId: string | null }).nearbyId === id,
-    entityId,
-  );
-  await page.keyboard.press('e');
-  await page.waitForFunction(
-    (id) =>
-      (window.__ontologist!.getState() as { scannedIds: readonly string[] }).scannedIds.includes(
-        id,
-      ),
-    entityId,
-  );
-  await page.keyboard.press('Escape');
-}
-
-async function playWaveOne(page: Page): Promise<void> {
+async function playWaveOne(page: Page, trailChoice: 'unknown' | 'false'): Promise<void> {
   await page.goto('/');
-  await page.waitForFunction(() => window.__ontologist?.ready === true, undefined, {
-    timeout: 30_000,
-  });
-  for (const id of [
-    'doc:recall-notice',
-    'doc:delivery-manifest',
-    'product:choco-oat-bites',
-    'product:trail-crunch',
-    'product:sunny-pops',
-    'product:berry-granola',
-  ]) {
-    await scanAt(page, id);
-  }
+  await ready(page);
+  await scanAndRecordAll(page, 'doc:recall-notice');
+  await scanAndRecordAll(page, 'doc:delivery-manifest');
+  await scanAndRecordAll(page, 'product:choco-oat-bites');
+  await scanAndChoose(page, 'product:trail-crunch', 0, trailChoice);
+  await scanAndRecordAll(page, 'product:sunny-pops');
+  await scanAndRecordAll(page, 'product:berry-granola');
   await page.getByTestId('file-report-open').click();
   await expect(page.getByTestId('commit-panel')).toBeVisible();
   // Consequence Preview is present before commit.
   await expect(page.getByTestId('commit-panel')).toContainText('what the model predicts');
 }
 
-async function verifyAndOpenDebrief(page: Page): Promise<void> {
+async function verifyAndClose(page: Page): Promise<void> {
   await page.getByTestId('file-report').click();
   await expect(page.getByTestId('objective')).toContainText('Field Verification');
-  // The wave-2 evidence appeared in the world only now.
-  await scanAt(page, 'doc:lab-report');
+  // The wave-2 evidence appeared only now; its findings must be RECORDED too.
+  await scanAndRecordAll(page, 'doc:lab-report');
+  await page.getByTestId('close-case').click();
   await expect(page.getByTestId('debrief-panel')).toBeVisible();
 }
 
-test('holding the uncertain product survives Field Verification', async ({ page }) => {
-  await playWaveOne(page);
+test('recording the ambiguity as unknown and holding survives Field Verification', async ({
+  page,
+}) => {
+  await playWaveOne(page, 'unknown');
+  await expect(page.getByTestId('status-product:trail-crunch')).toContainText('UNCERTAIN');
   await page.getByTestId('decision-product:trail-crunch-hold').check();
-  await verifyAndOpenDebrief(page);
+  await verifyAndClose(page);
 
   await expect(page.getByTestId('debrief-product:trail-crunch')).toContainText(
     'Held until the lab confirmed',
@@ -69,29 +52,17 @@ test('holding the uncertain product survives Field Verification', async ({ page 
   await expect(page.getByTestId('case-complete')).toBeVisible();
 });
 
-test('clearing the uncertain product causes visible harm', async ({ page }) => {
-  await playWaveOne(page);
-  await page.getByTestId('decision-product:trail-crunch-clear').check();
-  // The preview warns before commit — consequences are never a surprise.
-  await expect(page.getByTestId('commit-panel')).toContainText('customers are exposed');
-  await verifyAndOpenDebrief(page);
+test('recording the ambiguity as false causes visible harm', async ({ page }) => {
+  await playWaveOne(page, 'false');
+  // The modeling mistake makes it read "safe" — no hold/clear choice appears.
+  await expect(page.getByTestId('status-product:trail-crunch')).toContainText('safe');
+  await verifyAndClose(page);
 
+  // The lab's finding contradicts the player's own recorded "false":
+  // a second red thread, and the harm lands on the anchor.
+  await expect(page.getByTestId('thread-count')).toContainText('2 red threads');
   await expect(page.getByTestId('debrief-product:trail-crunch')).toContainText(
-    'Cleared while the model said',
+    'never justified clearing it',
   );
   await expect(page.getByTestId('debrief-anchor')).toContainText('bought the cleared product');
 });
-
-declare global {
-  interface Window {
-    __ontologist?: {
-      ready: boolean;
-      webgl2: boolean;
-      getState: () => unknown;
-      debug: {
-        teleportTo: (entityId: string) => boolean;
-        getPlayerPosition: () => { x: number; z: number };
-      };
-    };
-  }
-}

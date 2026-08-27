@@ -1,39 +1,19 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import { ready, scanAndChoose, scanAndRecordAll } from './helpers';
 
 /**
- * The Test verb: build "Which products contain Hazelnut Paste?" through the
- * sentence slots and assert tri-state answers — the inferred yes, the
- * unknown ("can't tell yet") with its missing evidence, and no false
- * positives for unscanned/unrelated products.
+ * The Test verb over the PLAYER'S model: queries answer from what was
+ * recorded — the inferred yes, the unknown with its missing evidence,
+ * and no false positives.
  */
-
-async function scanAt(page: Page, entityId: string): Promise<void> {
-  await page.evaluate((id) => window.__ontologist!.debug.teleportTo(id), entityId);
-  await page.waitForFunction(
-    (id) => (window.__ontologist!.getState() as { nearbyId: string | null }).nearbyId === id,
-    entityId,
-  );
-  await page.keyboard.press('e');
-  await page.waitForFunction(
-    (id) =>
-      (window.__ontologist!.getState() as { scannedIds: readonly string[] }).scannedIds.includes(
-        id,
-      ),
-    entityId,
-  );
-  await page.keyboard.press('Escape');
-}
-
 test('sentence query answers in tri-state with explanations', async ({ page }) => {
   await page.goto('/');
-  await page.waitForFunction(() => window.__ontologist?.ready === true, undefined, {
-    timeout: 30_000,
-  });
+  await ready(page);
 
-  await scanAt(page, 'doc:recall-notice');
-  await scanAt(page, 'doc:delivery-manifest');
-  await scanAt(page, 'product:choco-oat-bites');
-  await scanAt(page, 'product:trail-crunch');
+  await scanAndRecordAll(page, 'doc:recall-notice');
+  await scanAndRecordAll(page, 'doc:delivery-manifest');
+  await scanAndRecordAll(page, 'product:choco-oat-bites');
+  await scanAndChoose(page, 'product:trail-crunch', 0, 'unknown');
 
   // Open the Ask panel and build the sentence.
   await page.getByTestId('query-toggle').click();
@@ -64,17 +44,3 @@ test('sentence query answers in tri-state with explanations', async ({ page }) =
   await page.getByTestId('query-run').click();
   await expect(page.getByTestId('answer-product:choco-oat-bites')).toBeVisible();
 });
-
-declare global {
-  interface Window {
-    __ontologist?: {
-      ready: boolean;
-      webgl2: boolean;
-      getState: () => unknown;
-      debug: {
-        teleportTo: (entityId: string) => boolean;
-        getPlayerPosition: () => { x: number; z: number };
-      };
-    };
-  }
-}

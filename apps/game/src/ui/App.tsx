@@ -3,6 +3,7 @@ import type { CSSProperties } from 'react';
 import { LABELS, PRODUCT_IDS } from '../case/protoCase';
 import {
   CaseSession,
+  type ClueView,
   type FactView,
   type ProductStatus,
   type RecallDecision,
@@ -82,6 +83,91 @@ function FactRow({ fact }: { fact: FactView }) {
             </li>
           ))}
         </ul>
+      )}
+    </li>
+  );
+}
+
+const smallButton: CSSProperties = {
+  fontSize: 11,
+  padding: '1px 8px',
+  borderRadius: 8,
+  border: '1px solid #2b5a78',
+  background: 'transparent',
+  color: '#2b5a78',
+  cursor: 'pointer',
+  marginLeft: 6,
+};
+
+/**
+ * The Model verb (#49 embryo): a clue is evidence; RECORDING it is modeling.
+ * Ambiguous clues force the player to choose a truth value — recording
+ * "doesn't contain" where the label is unreadable is the unknown-vs-false
+ * mistake, and the model will faithfully carry it.
+ */
+function ClueRow({ clue, showSource }: { clue: ClueView; showSource?: boolean }) {
+  const recordClue = useGameStore((s) => s.recordClue);
+  const badge = clue.recordedTruth ? TRUTH_BADGE[clue.recordedTruth]! : null;
+  return (
+    <li data-testid={`clue-${clue.id}`} style={{ listStyle: 'none', marginBottom: 6 }}>
+      {clue.recordedTruth ? (
+        <>
+          <span style={{ color: badge!.color, marginRight: 6 }} aria-hidden>
+            {badge!.glyph}
+          </span>
+          <span style={{ color: '#7a7062' }}>
+            Recorded: {clue.text}
+            {clue.recordedTruth !== 'true' && (
+              <em style={{ color: badge!.color }}> — {badge!.word}</em>
+            )}
+          </span>
+        </>
+      ) : (
+        <>
+          <span style={{ color: '#8a6d1f', marginRight: 6 }} aria-hidden>
+            ◌
+          </span>
+          {clue.text}
+          {showSource && <span style={{ color: '#7a7062' }}> · from {clue.sourceLabel}</span>}
+          {clue.ambiguous ? (
+            <div style={{ marginLeft: 18, marginTop: 3, fontSize: 12 }}>
+              <em style={{ color: '#8a6d1f' }}>The evidence is unreadable — your call:</em>
+              <button
+                type="button"
+                data-testid={`clue-${clue.id}-unknown`}
+                onClick={() => recordClue(clue.id, 'unknown')}
+                style={smallButton}
+              >
+                record as unknown
+              </button>
+              <button
+                type="button"
+                data-testid={`clue-${clue.id}-true`}
+                onClick={() => recordClue(clue.id, 'true')}
+                style={smallButton}
+              >
+                assume it does
+              </button>
+              <button
+                type="button"
+                data-testid={`clue-${clue.id}-false`}
+                onClick={() => recordClue(clue.id, 'false')}
+                style={smallButton}
+              >
+                assume it doesn't
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              data-testid={`clue-${clue.id}-record`}
+              onClick={() => recordClue(clue.id)}
+              style={smallButton}
+            >
+              Record
+            </button>
+          )}
+        </>
       )}
     </li>
   );
@@ -503,6 +589,7 @@ export function App() {
       }
       if (key === 'j') useGameStore.getState().toggleJournal();
       if (key === 'q') useGameStore.getState().toggleQuery();
+      if (key === 'z' && (e.ctrlKey || e.metaKey)) useGameStore.getState().undo();
       if (key === 'escape') useGameStore.getState().closeLens();
     };
     window.addEventListener('keydown', onKey);
@@ -513,11 +600,15 @@ export function App() {
     state.phase === 'debrief'
       ? 'Case closed — read the Debrief.'
       : state.phase === 'verification'
-        ? 'Field Verification: the lab results just arrived — find the courier drop near the desk.'
+        ? state.canClose
+          ? 'Lab findings recorded — close the case (top right).'
+          : 'Field Verification: find the courier drop near the desk and record the lab findings.'
         : state.readyToCommit
           ? 'Every product is accounted for — file the recall report (top right).'
           : state.scannedIds.includes('doc:recall-notice')
-            ? 'Work out which shelf products are affected by the recall.'
+            ? state.leads.length > 0
+              ? 'Record your leads into the model (scan cards or Journal), then judge each product.'
+              : 'Work out which shelf products are affected by the recall.'
             : 'A recall notice arrived — find it in the backroom (west desk).';
 
   return (
@@ -548,8 +639,23 @@ export function App() {
           </span>
         </div>
         <div style={{ marginTop: 6, color: '#7a7062', fontSize: 12 }}>
-          WASD/arrows move · E scan · J journal · Q ask · click a nearby item to scan
+          WASD/arrows move · E scan · record clues to build the model · J journal · Q ask
         </div>
+        <button
+          type="button"
+          data-testid="undo-record"
+          onClick={state.undo}
+          disabled={!state.canUndo}
+          style={{
+            ...smallButton,
+            marginLeft: 0,
+            marginTop: 6,
+            opacity: state.canUndo ? 1 : 0.4,
+            cursor: state.canUndo ? 'pointer' : 'not-allowed',
+          }}
+        >
+          ↩ Undo record (Ctrl+Z)
+        </button>
         <SaveControls />
       </div>
 
@@ -602,6 +708,24 @@ export function App() {
             File recall report…
           </button>
         )}
+        {state.canClose && (
+          <button
+            type="button"
+            data-testid="close-case"
+            onClick={state.closeCase}
+            style={{
+              marginTop: 8,
+              padding: '6px 14px',
+              borderRadius: 8,
+              border: '1px solid #2f6b3f',
+              background: '#2f6b3f',
+              color: '#fff',
+              cursor: 'pointer',
+            }}
+          >
+            Close the case
+          </button>
+        )}
         {state.phase === 'debrief' && (
           <div data-testid="case-complete" style={{ marginTop: 8, color: '#2f6b3f' }}>
             ✓ Case closed after Field Verification.
@@ -639,33 +763,21 @@ export function App() {
             </button>
           </div>
           <div style={{ color: '#7a7062', margin: '4px 0 8px' }}>{state.lensCard.blurb}</div>
-          {state.lensCard.alreadyScanned ? (
-            <em>Already captured in the Journal.</em>
-          ) : (
-            <>
-              {state.lensCard.learned.length > 0 && (
-                <>
-                  <div style={{ fontWeight: 600, marginBottom: 4 }}>Recorded</div>
-                  <ul style={{ margin: 0, padding: 0 }}>
-                    {state.lensCard.learned.map((f) => (
-                      <FactRow key={f.id} fact={f} />
-                    ))}
-                  </ul>
-                </>
-              )}
-              {state.lensCard.inferred.length > 0 && (
-                <>
-                  <div style={{ fontWeight: 600, margin: '6px 0 4px', color: '#2b5a78' }}>
-                    New conclusions
-                  </div>
-                  <ul style={{ margin: 0, padding: 0 }}>
-                    {state.lensCard.inferred.map((f) => (
-                      <FactRow key={f.id} fact={f} />
-                    ))}
-                  </ul>
-                </>
-              )}
-            </>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>Leads</div>
+          <ul style={{ margin: 0, padding: 0 }}>
+            {state.lensCard.clues.map((clue) => (
+              <ClueRow key={clue.id} clue={clue} />
+            ))}
+          </ul>
+          {state.lensCard.clues.some((clue) => !clue.recordedTruth && !clue.ambiguous) && (
+            <button
+              type="button"
+              data-testid="record-all"
+              onClick={() => state.recordAllFrom(state.lensCard!.entityId)}
+              style={{ ...smallButton, marginLeft: 0, marginTop: 6 }}
+            >
+              Record all
+            </button>
           )}
         </div>
       )}
@@ -696,10 +808,23 @@ export function App() {
               ✕
             </button>
           </div>
+          {state.leads.length > 0 && (
+            <div data-testid="journal-leads" style={{ marginBottom: 8 }}>
+              <div style={{ fontWeight: 600, margin: '8px 0 4px', color: '#8a6d1f' }}>
+                Leads to record ({state.leads.length})
+              </div>
+              <ul style={{ margin: 0, padding: 0 }}>
+                {state.leads.map((clue) => (
+                  <ClueRow key={clue.id} clue={clue} showSource />
+                ))}
+              </ul>
+            </div>
+          )}
+          <div style={{ fontWeight: 600, margin: '8px 0 4px' }}>The model</div>
           {state.journal.length === 0 ? (
-            <em>Nothing recorded yet — scan something with the Lens (E).</em>
+            <em>Nothing recorded yet — scan evidence (E), then record its clues.</em>
           ) : (
-            <ul style={{ margin: '8px 0 0', padding: 0 }}>
+            <ul style={{ margin: 0, padding: 0 }}>
               {state.journal.map((f) => (
                 <FactRow key={f.id} fact={f} />
               ))}

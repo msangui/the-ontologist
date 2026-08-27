@@ -3,13 +3,14 @@ import { clearAutosave, saveAutosave } from '../case/persistence';
 import {
   CaseSession,
   type CasePhase,
+  type ClueView,
   type DebriefView,
   type FactView,
   type ProductStatus,
   type QueryResultView,
   type RecallDecision,
-  type ScanOutcome,
 } from '../case/session';
+import type { TruthValue } from '@ontologist/semantic-engine';
 
 /**
  * The one bridge between Babylon and React. Babylon uses getState()/subscribe()
@@ -22,9 +23,7 @@ export interface LensCardView {
   readonly entityId: string;
   readonly label: string;
   readonly blurb: string;
-  readonly learned: readonly FactView[];
-  readonly inferred: readonly FactView[];
-  readonly alreadyScanned: boolean;
+  readonly clues: readonly ClueView[];
 }
 
 export interface GameState {
@@ -32,11 +31,15 @@ export interface GameState {
   scannedCount: number;
   scannableCount: number;
   journal: readonly FactView[];
+  /** Unrecorded clues from scanned evidence — the player's to-model list. */
+  leads: readonly ClueView[];
   contradictionCount: number;
   productStatus: Readonly<Record<string, ProductStatus>>;
   phase: CasePhase;
   readyToCommit: boolean;
   commitOpen: boolean;
+  canUndo: boolean;
+  canClose: boolean;
   debrief: DebriefView | null;
   lensCard: LensCardView | null;
   journalOpen: boolean;
@@ -55,6 +58,10 @@ export interface GameState {
   importError: string | null;
 
   scan: (entityId: string) => void;
+  recordClue: (clueId: string, truth?: TruthValue) => void;
+  recordAllFrom: (entityId: string) => void;
+  undo: () => void;
+  closeCase: () => void;
   setNearby: (id: string | null, label: string | null) => void;
   toggleJournal: () => void;
   toggleQuery: () => void;
@@ -77,8 +84,9 @@ export function hydrateFromSnapshot(snapshot: unknown): boolean {
   if (!restored) return false;
   session = restored;
   useGameStore.setState((prev) => ({
-    ...mirror(null, prev),
+    ...mirror(prev),
     scannedIds: session.snapshot().scannedIds,
+    lensCard: null,
   }));
   return true;
 }
@@ -89,38 +97,35 @@ const persist = (): void => {
   });
 };
 
-const mirror = (outcome: ScanOutcome | null, prev: GameState): Partial<GameState> => ({
-  scannedIds: prev.scannedIds.includes(outcome?.entity.id ?? '')
-    ? prev.scannedIds
-    : [...prev.scannedIds, ...(outcome ? [outcome.entity.id] : [])],
+/** Recompute every session-derived slice (incl. a refresh of the open lens card). */
+const mirror = (prev: GameState): Partial<GameState> => ({
   scannedCount: session.scannedCount,
   scannableCount: session.scannableCount,
   journal: session.journal(),
+  leads: session.leads(),
   contradictionCount: session.contradictionCount(),
   productStatus: session.productStatuses(),
   phase: session.phase,
   readyToCommit: session.readyToCommit(),
+  canUndo: session.canUndo,
+  canClose: session.canCloseCase(),
   debrief: session.debrief(),
   containsSlotOptions: session.containsSlotOptions(),
-  lensCard: outcome
-    ? {
-        entityId: outcome.entity.id,
-        label: outcome.entity.label,
-        blurb: outcome.entity.blurb,
-        learned: outcome.learned,
-        inferred: outcome.inferred,
-        alreadyScanned: outcome.learned.length === 0 && outcome.inferred.length === 0,
-      }
-    : prev.lensCard,
+  lensCard: prev.lensCard
+    ? { ...prev.lensCard, clues: session.cluesOf(prev.lensCard.entityId) }
+    : null,
 });
 
 const freshUiState = {
   scannedIds: [] as readonly string[],
   scannedCount: 0,
   journal: [] as readonly FactView[],
+  leads: [] as readonly ClueView[],
   contradictionCount: 0,
   readyToCommit: false,
   commitOpen: false,
+  canUndo: false,
+  canClose: false,
   debrief: null,
   lensCard: null,
   journalOpen: false,
@@ -143,8 +148,40 @@ export const useGameStore = create<GameState>((set) => ({
   scan: (entityId) => {
     set((prev) => {
       const outcome = session.scan(entityId);
-      return mirror(outcome, prev);
+      if (!outcome) return prev;
+      return {
+        ...mirror(prev),
+        scannedIds: prev.scannedIds.includes(entityId)
+          ? prev.scannedIds
+          : [...prev.scannedIds, entityId],
+        lensCard: {
+          entityId: outcome.entity.id,
+          label: outcome.entity.label,
+          blurb: outcome.entity.blurb,
+          clues: outcome.clues,
+        },
+      };
     });
+    persist();
+  },
+  recordClue: (clueId, truth) => {
+    if (!session.recordClue(clueId, truth)) return;
+    set((prev) => mirror(prev));
+    persist();
+  },
+  recordAllFrom: (entityId) => {
+    if (session.recordAllFrom(entityId) === 0) return;
+    set((prev) => mirror(prev));
+    persist();
+  },
+  undo: () => {
+    if (!session.undo()) return;
+    set((prev) => mirror(prev));
+    persist();
+  },
+  closeCase: () => {
+    if (!session.closeCase()) return;
+    set((prev) => ({ ...mirror(prev), lensCard: null, commitOpen: false }));
     persist();
   },
   setNearby: (id, nearbyLabel) =>
@@ -172,7 +209,7 @@ export const useGameStore = create<GameState>((set) => ({
     set((prev) => {
       if (!session.commit(decisions)) return prev;
       committed = true;
-      return { ...mirror(null, prev), commitOpen: false };
+      return { ...mirror(prev), commitOpen: false };
     });
     if (committed) persist();
   },
@@ -208,8 +245,11 @@ export const useGameStore = create<GameState>((set) => ({
     }
     session = restored;
     set((prev) => ({
-      ...mirror(null, prev),
-      ...{ lensCard: null, commitOpen: false, queryResults: null, querySentence: null },
+      ...mirror(prev),
+      lensCard: null,
+      commitOpen: false,
+      queryResults: null,
+      querySentence: null,
       scannedIds: session.snapshot().scannedIds,
       importError: null,
     }));
