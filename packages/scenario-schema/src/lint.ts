@@ -47,6 +47,8 @@ export function intendedModel(scenario: Scenario): InferenceResult {
       assert(fact, { kind: 'evidence', evidenceId: entity.id });
     }
   }
+  // The intended solution includes the player's own modeling actions.
+  for (const fact of scenario.intendedActions) assert(fact, { kind: 'player' });
   return infer(log);
 }
 
@@ -111,6 +113,15 @@ export function lintScenario(scenario: Scenario): LintReport {
   for (const question of scenario.competencyQuestions)
     requireKey(question.promptKey, `question ${question.id}`);
   for (const [id, key] of Object.entries(scenario.labels)) requireKey(key, `label for ${id}`);
+  for (const [id, key] of Object.entries(scenario.notes)) requireKey(key, `note for ${id}`);
+  for (const classId of scenario.modelClasses) {
+    if (!scenario.labels[classId])
+      error('labels', `Model class "${classId}" has no display label.`);
+  }
+  for (const candidateId of scenario.modelCandidates) {
+    if (!scenario.labels[candidateId])
+      error('labels', `Model candidate "${candidateId}" has no display label.`);
+  }
 
   // Rule: every world id that appears in a fact should have a display label.
   const labeled = new Set(Object.keys(scenario.labels));

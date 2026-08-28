@@ -6,6 +6,7 @@ import {
   type ClueView,
   type DebriefView,
   type FactView,
+  type ModelViewData,
   type ProductStatus,
   type QueryResultView,
   type RecallDecision,
@@ -43,6 +44,9 @@ export interface GameState {
   debrief: DebriefView | null;
   lensCard: LensCardView | null;
   journalOpen: boolean;
+  /** The Classify verb (#49): Model View state. */
+  modelViewOpen: boolean;
+  modelView: ModelViewData;
   /** Scannable currently in reach (set by the scene each frame). */
   nearbyId: string | null;
   nearbyLabel: string | null;
@@ -60,6 +64,8 @@ export interface GameState {
   scan: (entityId: string) => void;
   recordClue: (clueId: string, truth?: TruthValue) => void;
   recordAllFrom: (entityId: string) => void;
+  classify: (entityId: string, classId: string, truth: 'true' | 'false') => void;
+  toggleModelView: () => void;
   undo: () => void;
   closeCase: () => void;
   setNearby: (id: string | null, label: string | null) => void;
@@ -111,6 +117,7 @@ const mirror = (prev: GameState): Partial<GameState> => ({
   canClose: session.canCloseCase(),
   debrief: session.debrief(),
   containsSlotOptions: session.containsSlotOptions(),
+  modelView: session.modelView(),
   lensCard: prev.lensCard
     ? { ...prev.lensCard, clues: session.cluesOf(prev.lensCard.entityId) }
     : null,
@@ -129,6 +136,7 @@ const freshUiState = {
   debrief: null,
   lensCard: null,
   journalOpen: false,
+  modelViewOpen: false,
   queryOpen: false,
   queryResults: null,
   querySentence: null,
@@ -141,6 +149,7 @@ export const useGameStore = create<GameState>((set) => ({
   productStatus: session.productStatuses(),
   phase: session.phase,
   containsSlotOptions: session.containsSlotOptions(),
+  modelView: session.modelView(),
   nearbyId: null,
   nearbyLabel: null,
   savesWritten: 0,
@@ -174,6 +183,12 @@ export const useGameStore = create<GameState>((set) => ({
     set((prev) => mirror(prev));
     persist();
   },
+  classify: (entityId, classId, truth) => {
+    if (!session.classify(entityId, classId, truth)) return;
+    set((prev) => mirror(prev));
+    persist();
+  },
+  toggleModelView: () => set((prev) => ({ modelViewOpen: !prev.modelViewOpen })),
   undo: () => {
     if (!session.undo()) return;
     set((prev) => mirror(prev));
@@ -223,6 +238,7 @@ export const useGameStore = create<GameState>((set) => ({
       productStatus: session.productStatuses(),
       phase: session.phase,
       containsSlotOptions: session.containsSlotOptions(),
+      modelView: session.modelView(),
       savesWritten: prev.savesWritten,
     }));
   },

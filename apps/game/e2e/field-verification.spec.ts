@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { ready, scanAndChoose, scanAndRecordAll } from './helpers';
+import { classifyInModelView, ready, scanAndChoose, scanAndRecordAll } from './helpers';
 
 /**
  * The signature mechanic under the Model verb: how the player RECORDS the
@@ -15,6 +15,7 @@ async function playWaveOne(page: Page, trailChoice: 'unknown' | 'false'): Promis
   await scanAndRecordAll(page, 'doc:recall-notice');
   await scanAndRecordAll(page, 'doc:delivery-manifest');
   await scanAndRecordAll(page, 'product:choco-oat-bites');
+  await classifyInModelView(page, 'ing:hazelnut-paste', 'true');
   await scanAndChoose(page, 'product:trail-crunch', 0, trailChoice);
   await scanAndRecordAll(page, 'product:sunny-pops');
   await scanAndRecordAll(page, 'product:berry-granola');

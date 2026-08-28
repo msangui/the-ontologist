@@ -23,6 +23,18 @@ export async function scanAndRecordAll(page: Page, entityId: string): Promise<vo
   await page.keyboard.press('Escape');
 }
 
+/** Classify a candidate in Model View (the Classify verb). */
+export async function classifyInModelView(
+  page: Page,
+  entityId: string,
+  choice: 'true' | 'false',
+): Promise<void> {
+  await page.getByTestId('model-toggle').click();
+  await expect(page.getByTestId('model-view')).toBeVisible();
+  await page.getByTestId(`classify-${entityId}-${choice}`).click();
+  await page.getByTestId('model-toggle').click();
+}
+
 /** Scan and resolve the entity's ambiguous clue with the given choice. */
 export async function scanAndChoose(
   page: Page,

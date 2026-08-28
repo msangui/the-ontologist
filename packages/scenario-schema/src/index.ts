@@ -83,6 +83,18 @@ export const scenarioSchema = z.object({
     storeId: z.string().min(1),
     recalledClassId: z.string().min(1),
   }),
+  /** Classes the player can classify into (Model View, the Classify verb). */
+  modelClasses: z.array(z.string().min(1)).default([]),
+  /** Entities offered as classification candidates in Model View. */
+  modelCandidates: z.array(z.string().min(1)).default([]),
+  /** Per-entity descriptor keys shown on candidate cards (the judgment input). */
+  notes: z.record(z.string(), z.string()).default({}),
+  /**
+   * The intended player modeling actions (hidden facts, §19): assertions the
+   * solution requires the PLAYER to make (e.g. classifications). Casewright
+   * includes them in the intended model when proving competency questions.
+   */
+  intendedActions: z.array(factSchema).default([]),
   humanAnchor: z.object({
     nameKey: z.string().min(1),
     harmKey: z

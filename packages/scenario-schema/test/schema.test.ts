@@ -104,12 +104,18 @@ describe('casewright semantic lint (#31)', () => {
     expect(report.findings.some((f) => f.rule === 'string-keys')).toBe(true);
   });
 
-  it('warns on unlabeled world ids', () => {
+  it('warns on unlabeled world ids (but errors on unlabeled candidates)', () => {
     const scenario = validated();
-    const { 'ing:corn': _dropped, ...labels } = scenario.labels;
+    // The store appears in facts but is not a candidate/class → warning only.
+    const { 'store:freshmart-12': _dropped, ...labels } = scenario.labels;
     const report = lintScenario({ ...scenario, labels });
     expect(report.findings.some((f) => f.rule === 'labels' && f.severity === 'warning')).toBe(true);
     // Warnings alone don't block shipping.
     expect(report.ok).toBe(true);
+
+    // A classification candidate without a label IS an error.
+    const { 'ing:corn': _dropped2, ...labels2 } = scenario.labels;
+    const report2 = lintScenario({ ...scenario, labels: labels2 });
+    expect(report2.ok).toBe(false);
   });
 });

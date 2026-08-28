@@ -30,19 +30,24 @@
     "label.contains": "contains",
     "label.soldAt": "sold at",
     "label.sells": "sells",
-    "blurb.recall-notice": "URGENT — supplier batch recall: hazelnut paste, Northstar Foods.",
+    "blurb.recall-notice": "URGENT — supplier batch recall: ALL tree-nut ingredients from Northstar Foods.",
     "blurb.delivery-manifest": "This week's deliveries, with supplier mix compositions.",
     "blurb.lab-report": "Courier drop from the testing lab — the field results are in.",
     "blurb.choco-oat-bites": "Ingredients: choco base mix, rolled oats, honey.",
     "blurb.trail-crunch": "The ingredient label is smudged — hazelnut paste? Can't tell.",
     "blurb.berry-granola": "Ingredients: rolled oats, dried berries.",
     "blurb.sunny-pops": "Shelf tag says DISCONTINUED — but it was on this week's manifest…",
-    "question.affected": "Which sold products contain the recalled paste?",
+    "question.affected": "Which sold products contain a recalled ingredient?",
     "question.granola-clean": "Is Berry Granola confirmed free of the recalled paste?",
     "question.sold-here": "Which products are sold at FreshMart #12?",
     "debrief.anchor-safe": "Maya — the shopper with the tree-nut allergy — shopped safely. The uncertain product stayed off her cart until the lab spoke.",
     "debrief.anchor-harm": "Maya — the shopper with the tree-nut allergy — bought the cleared product before the lab results arrived. “Unknown” was never “safe.”",
-    "debrief.rework": "Field Verification resolved the unknowns without breaking your model — new evidence filled gaps the model had already marked. That is what a model that represents reality looks like."
+    "debrief.rework": "Field Verification resolved the unknowns without breaking your model — new evidence filled gaps the model had already marked. That is what a model that represents reality looks like.",
+    "label.tree-nut": "Tree-Nut Ingredient",
+    "note.hazelnut-paste": "Pressed from roasted hazelnuts — a tree nut.",
+    "note.rolled-oats": "A cereal grain, milled on site.",
+    "note.corn": "A cereal grain, supplied whole.",
+    "note.choco-base": "A supplier mix — what matters is what it contains."
   },
   "labels": {
     "doc:recall-notice": "label.recall-notice",
@@ -57,11 +62,20 @@
     "mix:choco-base": "label.choco-base",
     "ing:hazelnut-paste": "label.hazelnut-paste",
     "ing:rolled-oats": "label.rolled-oats",
-    "ing:corn": "label.corn"
+    "ing:corn": "label.corn",
+    "class:tree-nut-ingredient": "label.tree-nut"
   },
   "ontologyFacts": [
-    { "subject": "contains", "predicate": "transitiveProperty", "object": true },
-    { "subject": "sells", "predicate": "inverseOf", "object": "soldAt" }
+    {
+      "subject": "contains",
+      "predicate": "transitiveProperty",
+      "object": true
+    },
+    {
+      "subject": "sells",
+      "predicate": "inverseOf",
+      "object": "soldAt"
+    }
   ],
   "entities": [
     {
@@ -71,8 +85,8 @@
       "blurbKey": "blurb.recall-notice",
       "scanFacts": [
         {
-          "subject": "ing:hazelnut-paste",
-          "predicate": "instanceOf",
+          "subject": "class:tree-nut-ingredient",
+          "predicate": "subclassOf",
           "object": "class:recalled-ingredient"
         }
       ]
@@ -83,7 +97,11 @@
       "position": [-6.5, -0.5],
       "blurbKey": "blurb.delivery-manifest",
       "scanFacts": [
-        { "subject": "mix:choco-base", "predicate": "contains", "object": "ing:hazelnut-paste" },
+        {
+          "subject": "mix:choco-base",
+          "predicate": "contains",
+          "object": "ing:hazelnut-paste"
+        },
         {
           "subject": "product:choco-oat-bites",
           "predicate": "soldAt",
@@ -94,7 +112,11 @@
           "predicate": "soldAt",
           "object": "store:freshmart-12"
         },
-        { "subject": "product:sunny-pops", "predicate": "soldAt", "object": "store:freshmart-12" }
+        {
+          "subject": "product:sunny-pops",
+          "predicate": "soldAt",
+          "object": "store:freshmart-12"
+        }
       ]
     },
     {
@@ -131,7 +153,11 @@
       "position": [2.5, 2.4],
       "blurbKey": "blurb.berry-granola",
       "scanFacts": [
-        { "subject": "product:berry-granola", "predicate": "contains", "object": "ing:rolled-oats" }
+        {
+          "subject": "product:berry-granola",
+          "predicate": "contains",
+          "object": "ing:rolled-oats"
+        }
       ]
     },
     {
@@ -140,7 +166,11 @@
       "position": [5.5, 2.4],
       "blurbKey": "blurb.sunny-pops",
       "scanFacts": [
-        { "subject": "product:sunny-pops", "predicate": "contains", "object": "ing:corn" },
+        {
+          "subject": "product:sunny-pops",
+          "predicate": "contains",
+          "object": "ing:corn"
+        },
         {
           "subject": "product:sunny-pops",
           "predicate": "soldAt",
@@ -178,19 +208,61 @@
       "select": ["p"],
       "where": [
         {
-          "subject": { "kind": "var", "name": "p" },
-          "predicate": { "kind": "const", "value": "contains" },
-          "object": { "kind": "const", "value": "ing:hazelnut-paste" }
+          "subject": {
+            "kind": "var",
+            "name": "p"
+          },
+          "predicate": {
+            "kind": "const",
+            "value": "contains"
+          },
+          "object": {
+            "kind": "var",
+            "name": "i"
+          }
         },
         {
-          "subject": { "kind": "var", "name": "p" },
-          "predicate": { "kind": "const", "value": "soldAt" },
-          "object": { "kind": "const", "value": "store:freshmart-12" }
+          "subject": {
+            "kind": "var",
+            "name": "i"
+          },
+          "predicate": {
+            "kind": "const",
+            "value": "instanceOf"
+          },
+          "object": {
+            "kind": "const",
+            "value": "class:recalled-ingredient"
+          }
+        },
+        {
+          "subject": {
+            "kind": "var",
+            "name": "p"
+          },
+          "predicate": {
+            "kind": "const",
+            "value": "soldAt"
+          },
+          "object": {
+            "kind": "const",
+            "value": "store:freshmart-12"
+          }
         }
       ],
       "expected": [
-        { "binding": { "p": "product:choco-oat-bites" }, "truth": "true" },
-        { "binding": { "p": "product:trail-crunch" }, "truth": "true" }
+        {
+          "binding": {
+            "p": "product:choco-oat-bites"
+          },
+          "truth": "true"
+        },
+        {
+          "binding": {
+            "p": "product:trail-crunch"
+          },
+          "truth": "true"
+        }
       ]
     },
     {
@@ -199,9 +271,18 @@
       "promptKey": "question.granola-clean",
       "where": [
         {
-          "subject": { "kind": "const", "value": "product:berry-granola" },
-          "predicate": { "kind": "const", "value": "contains" },
-          "object": { "kind": "const", "value": "ing:hazelnut-paste" }
+          "subject": {
+            "kind": "const",
+            "value": "product:berry-granola"
+          },
+          "predicate": {
+            "kind": "const",
+            "value": "contains"
+          },
+          "object": {
+            "kind": "const",
+            "value": "ing:hazelnut-paste"
+          }
         }
       ],
       "expectedTruth": "false"
@@ -213,15 +294,39 @@
       "select": ["p"],
       "where": [
         {
-          "subject": { "kind": "var", "name": "p" },
-          "predicate": { "kind": "const", "value": "soldAt" },
-          "object": { "kind": "const", "value": "store:freshmart-12" }
+          "subject": {
+            "kind": "var",
+            "name": "p"
+          },
+          "predicate": {
+            "kind": "const",
+            "value": "soldAt"
+          },
+          "object": {
+            "kind": "const",
+            "value": "store:freshmart-12"
+          }
         }
       ],
       "expected": [
-        { "binding": { "p": "product:choco-oat-bites" }, "truth": "true" },
-        { "binding": { "p": "product:trail-crunch" }, "truth": "true" },
-        { "binding": { "p": "product:sunny-pops" }, "truth": "true" }
+        {
+          "binding": {
+            "p": "product:choco-oat-bites"
+          },
+          "truth": "true"
+        },
+        {
+          "binding": {
+            "p": "product:trail-crunch"
+          },
+          "truth": "true"
+        },
+        {
+          "binding": {
+            "p": "product:sunny-pops"
+          },
+          "truth": "true"
+        }
       ]
     }
   ],
@@ -229,5 +334,20 @@
     "anchorSafeKey": "debrief.anchor-safe",
     "anchorHarmKey": "debrief.anchor-harm",
     "reworkKey": "debrief.rework"
-  }
+  },
+  "modelClasses": ["class:tree-nut-ingredient"],
+  "modelCandidates": ["ing:hazelnut-paste", "ing:rolled-oats", "ing:corn", "mix:choco-base"],
+  "notes": {
+    "ing:hazelnut-paste": "note.hazelnut-paste",
+    "ing:rolled-oats": "note.rolled-oats",
+    "ing:corn": "note.corn",
+    "mix:choco-base": "note.choco-base"
+  },
+  "intendedActions": [
+    {
+      "subject": "ing:hazelnut-paste",
+      "predicate": "instanceOf",
+      "object": "class:tree-nut-ingredient"
+    }
+  ]
 }

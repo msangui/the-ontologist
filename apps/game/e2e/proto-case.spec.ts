@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { ready, scanAndChoose, scanAndRecordAll } from './helpers';
+import { classifyInModelView, ready, scanAndChoose, scanAndRecordAll } from './helpers';
 
 /**
  * Wave 1 with the Model verb: scanning yields leads, RECORDING builds the
@@ -19,17 +19,20 @@ test('the recall case plays end to end with live inference', async ({ page }) =>
   await scanAndRecordAll(page, 'doc:delivery-manifest');
   await scanAndRecordAll(page, 'product:choco-oat-bites');
 
-  // The engine derived the transitive chain from the RECORDED facts.
-  await expect(page.getByTestId('status-product:choco-oat-bites')).toContainText('AFFECTED');
-
-  // Undo (#61): retract the last recording and the verdict un-derives.
-  await page.getByTestId('undo-record').click();
+  // The recall names a CLASS — nothing is affected until the player
+  // classifies. The recorded facts alone don't implicate anything.
   await expect(page.getByTestId('status-product:choco-oat-bites')).not.toContainText('AFFECTED');
-  // Re-record it from the Journal's leads section.
-  await page.keyboard.press('j');
-  await page.getByTestId('journal-leads').locator('[data-testid$="-record"]').first().click();
+
+  // The Classify verb: hazelnut paste is a tree nut → the engine derives
+  // that it's recalled (subclass) → the transitive chain implicates the product.
+  await classifyInModelView(page, 'ing:hazelnut-paste', 'true');
   await expect(page.getByTestId('status-product:choco-oat-bites')).toContainText('AFFECTED');
-  await page.keyboard.press('j');
+  // The derived membership is visible (and explainable) in Model View.
+  await page.getByTestId('model-toggle').click();
+  await expect(
+    page.getByTestId('member-class:recalled-ingredient-ing:hazelnut-paste'),
+  ).toContainText('inferred');
+  await page.getByTestId('model-toggle').click();
 
   // Unknown ≠ false: the smudged label is the player's call — record unknown.
   await scanAndChoose(page, 'product:trail-crunch', 0, 'unknown');
@@ -38,6 +41,13 @@ test('the recall case plays end to end with live inference', async ({ page }) =>
   // Sunny Pops: shelf tag contradicts the manifest → one red thread.
   await scanAndRecordAll(page, 'product:sunny-pops');
   await expect(page.getByTestId('thread-count')).toContainText('1 red thread');
+
+  // A WRONG classification propagates: corn as tree nut → Sunny Pops
+  // wrongly reads AFFECTED. Undo (#61) un-derives it.
+  await classifyInModelView(page, 'ing:corn', 'true');
+  await expect(page.getByTestId('status-product:sunny-pops')).toContainText('AFFECTED');
+  await page.getByTestId('undo-record').click();
+  await expect(page.getByTestId('status-product:sunny-pops')).not.toContainText('AFFECTED');
 
   await scanAndRecordAll(page, 'product:berry-granola');
   await expect(page.getByTestId('status-product:berry-granola')).toContainText('safe');

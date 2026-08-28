@@ -18,6 +18,8 @@ import {
   DEBRIEF_TEXTS,
   ENTITIES,
   LABELS,
+  MODEL_CANDIDATES,
+  MODEL_CLASSES,
   ONTOLOGY_FACTS,
   PRODUCT_IDS,
   RECALLED_CLASS,
@@ -136,9 +138,47 @@ interface ClueState {
   assertionId?: string;
 }
 
+/** One player classification: entity → class, true or explicitly false. */
+interface ClassificationState {
+  readonly entityId: string;
+  readonly classId: string;
+  readonly truth: 'true' | 'false';
+  readonly assertionId: string;
+}
+
+type UndoEntry =
+  | { readonly kind: 'clue'; readonly clueId: string }
+  | { readonly kind: 'classify'; readonly key: string };
+
+/** Model View data (#49 embryo): classes as regions, candidates as cards. */
+export interface ModelClassView {
+  readonly id: string;
+  readonly label: string;
+  readonly playerEditable: boolean;
+  readonly members: readonly {
+    readonly id: string;
+    readonly label: string;
+    readonly inferred: boolean;
+    readonly explanation?: readonly string[];
+  }[];
+}
+
+export interface ModelCandidateView {
+  readonly id: string;
+  readonly label: string;
+  readonly note?: string;
+  /** Player classification per editable class id, when made. */
+  readonly classification?: { readonly classId: string; readonly truth: 'true' | 'false' };
+}
+
+export interface ModelViewData {
+  readonly classes: readonly ModelClassView[];
+  readonly candidates: readonly ModelCandidateView[];
+}
+
 /** Versioned save shape (#62): the assertion log IS the model save (§18.7). */
 export interface CaseSnapshot {
-  readonly saveVersion: 2;
+  readonly saveVersion: 3;
   readonly log: string;
   readonly scannedIds: readonly string[];
   readonly phase: CasePhase;
@@ -146,8 +186,10 @@ export interface CaseSnapshot {
   readonly seq: number;
   /** [clueId, recordedTruth, assertionId] for every recorded clue. */
   readonly recorded: readonly [string, TruthValue, string][];
-  /** Recording order — the undo stack. */
-  readonly order: readonly string[];
+  /** [entityId, classId, truth, assertionId] for every player classification. */
+  readonly classifications: readonly [string, string, 'true' | 'false', string][];
+  /** Modeling-action order — the undo stack. */
+  readonly undoStack: readonly UndoEntry[];
 }
 
 export class CaseSession {
@@ -155,7 +197,8 @@ export class CaseSession {
   private readonly entities = new Map(ENTITIES.map((e) => [e.id, e]));
   private readonly scanned = new Set<string>();
   private readonly clues = new Map<string, ClueState>();
-  private recordedOrder: string[] = [];
+  private readonly classifications = new Map<string, ClassificationState>();
+  private undoStack: UndoEntry[] = [];
   private result: InferenceResult;
   private seq = 0;
 
@@ -177,7 +220,15 @@ export class CaseSession {
           clue.assertionId = assertionId;
         }
       }
-      this.recordedOrder = [...snapshot.order];
+      for (const [entityId, classId, truth, assertionId] of snapshot.classifications) {
+        this.classifications.set(`${entityId}|${classId}`, {
+          entityId,
+          classId,
+          truth,
+          assertionId,
+        });
+      }
+      this.undoStack = [...snapshot.undoStack];
     } else {
       this.log = new AssertionLog();
       for (const fact of ONTOLOGY_FACTS) {
@@ -196,7 +247,7 @@ export class CaseSession {
 
   snapshot(): CaseSnapshot {
     return {
-      saveVersion: 2,
+      saveVersion: 3,
       log: this.log.serialize(),
       scannedIds: [...this.scanned],
       phase: this.currentPhase,
@@ -205,7 +256,13 @@ export class CaseSession {
       recorded: [...this.clues.values()]
         .filter((clue) => clue.recordedTruth && clue.assertionId)
         .map((clue) => [clue.id, clue.recordedTruth!, clue.assertionId!]),
-      order: [...this.recordedOrder],
+      classifications: [...this.classifications.values()].map((entry) => [
+        entry.entityId,
+        entry.classId,
+        entry.truth,
+        entry.assertionId,
+      ]),
+      undoStack: [...this.undoStack],
     };
   }
 
@@ -215,10 +272,12 @@ export class CaseSession {
       const snap = snapshot as CaseSnapshot;
       if (
         !snap ||
-        snap.saveVersion !== 2 ||
+        snap.saveVersion !== 3 ||
         typeof snap.log !== 'string' ||
         !Array.isArray(snap.scannedIds) ||
         !Array.isArray(snap.recorded) ||
+        !Array.isArray(snap.classifications) ||
+        !Array.isArray(snap.undoStack) ||
         typeof snap.seq !== 'number'
       ) {
         return null;
@@ -327,9 +386,91 @@ export class CaseSession {
     });
     clue.recordedTruth = truth;
     clue.assertionId = assertionId;
-    this.recordedOrder.push(clueId);
+    this.undoStack.push({ kind: 'clue', clueId });
     this.result = infer(this.log);
     return true;
+  }
+
+  // --- Classify: the player builds the ontology (#49) ---------------------
+
+  /**
+   * Classify a candidate into a player-editable class — instanceOf true, or
+   * an explicit false ("this is NOT a tree nut"). The engine's subclass rule
+   * does the rest: classifying into a recalled subclass derives recall status.
+   * A wrong classification produces wrong verdicts, exactly as recorded.
+   */
+  classify(entityId: string, classId: string, truth: 'true' | 'false'): boolean {
+    if (this.currentPhase === 'debrief') return false;
+    if (!MODEL_CLASSES.some((cls) => cls.id === classId)) return false;
+    if (!MODEL_CANDIDATES.some((candidate) => candidate.id === entityId)) return false;
+    const key = `${entityId}|${classId}`;
+    if (this.classifications.has(key)) return false; // undo first, then reclassify
+
+    const assertionId = `f:${(this.seq += 1)}`;
+    this.log.assert({
+      id: assertionId,
+      subject: entityId,
+      predicate: VOCAB.instanceOf,
+      object: classId,
+      truth,
+      provenance: { kind: 'player' },
+    });
+    this.classifications.set(key, { entityId, classId, truth, assertionId });
+    this.undoStack.push({ kind: 'classify', key });
+    this.result = infer(this.log);
+    return true;
+  }
+
+  modelView(): ModelViewData {
+    const memberOf = (classId: string) =>
+      [...this.result.base, ...this.result.derived]
+        .filter(
+          (f) =>
+            f.predicate === VOCAB.instanceOf &&
+            f.object === classId &&
+            f.truth === 'true' &&
+            typeof f.subject === 'string',
+        )
+        .map((f) => {
+          const inferred = this.result.derived.some((d) => d.id === f.id);
+          return {
+            id: f.subject,
+            label: LABELS[f.subject] ?? f.subject,
+            inferred,
+            ...(inferred ? { explanation: this.groundTexts(f.id) } : {}),
+          };
+        });
+
+    const classes: ModelClassView[] = [
+      {
+        id: RECALLED_CLASS,
+        label: LABELS[RECALLED_CLASS] ?? RECALLED_CLASS,
+        playerEditable: false,
+        members: memberOf(RECALLED_CLASS),
+      },
+      ...MODEL_CLASSES.map((cls) => ({
+        id: cls.id,
+        label: cls.label,
+        playerEditable: true,
+        members: memberOf(cls.id),
+      })),
+    ];
+
+    const candidates: ModelCandidateView[] = MODEL_CANDIDATES.map((candidate) => {
+      const classification = [...this.classifications.values()].find(
+        (entry) => entry.entityId === candidate.id,
+      );
+      return {
+        id: candidate.id,
+        label: candidate.label,
+        ...(candidate.note ? { note: candidate.note } : {}),
+        ...(classification
+          ? { classification: { classId: classification.classId, truth: classification.truth } }
+          : {}),
+      };
+    });
+
+    return { classes, candidates };
   }
 
   /** Record every unambiguous clue from one evidence source. */
@@ -345,18 +486,25 @@ export class CaseSession {
   }
 
   get canUndo(): boolean {
-    return this.currentPhase !== 'debrief' && this.recordedOrder.length > 0;
+    return this.currentPhase !== 'debrief' && this.undoStack.length > 0;
   }
 
-  /** Unlimited undo (#61): retract the last recording, un-derive its consequences. */
+  /** Unlimited undo (#61): retract the last modeling action of either kind. */
   undo(): boolean {
     if (!this.canUndo) return false;
-    const clueId = this.recordedOrder.pop()!;
-    const clue = this.clues.get(clueId);
-    if (!clue?.assertionId) return false;
-    this.log.retract(clue.assertionId);
-    delete clue.recordedTruth;
-    delete clue.assertionId;
+    const entry = this.undoStack.pop()!;
+    if (entry.kind === 'clue') {
+      const clue = this.clues.get(entry.clueId);
+      if (!clue?.assertionId) return false;
+      this.log.retract(clue.assertionId);
+      delete clue.recordedTruth;
+      delete clue.assertionId;
+    } else {
+      const classification = this.classifications.get(entry.key);
+      if (!classification) return false;
+      this.log.retract(classification.assertionId);
+      this.classifications.delete(entry.key);
+    }
     this.result = infer(this.log);
     return true;
   }

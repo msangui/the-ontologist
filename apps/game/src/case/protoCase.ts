@@ -67,3 +67,19 @@ export const DEBRIEF_TEXTS = {
 } as const;
 
 export const questionPrompt = (question: CompetencyQuestion): string => text(question.promptKey);
+
+/** Classes the player can classify into (the Classify verb, Model View). */
+export const MODEL_CLASSES = SCENARIO.modelClasses.map((id) => ({
+  id,
+  label: LABELS[id] ?? id,
+}));
+
+/** Classification candidates, with their descriptor notes (the judgment input). */
+export const MODEL_CANDIDATES = SCENARIO.modelCandidates.map((id) => {
+  const noteKey = SCENARIO.notes[id];
+  return {
+    id,
+    label: LABELS[id] ?? id,
+    ...(noteKey ? { note: text(noteKey) } : {}),
+  };
+});

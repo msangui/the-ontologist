@@ -174,6 +174,160 @@ function ClueRow({ clue, showSource }: { clue: ClueView; showSource?: boolean })
 }
 
 /**
+ * Model View (#49 embryo, corkboard-meets-constellation to be): classes as
+ * regions, candidates as cards. The Classify verb lives here — and ONLY here
+ * does structure get edited [I3-D1].
+ */
+function ModelViewPanel() {
+  const modelView = useGameStore((s) => s.modelView);
+  const classify = useGameStore((s) => s.classify);
+  const toggleModelView = useGameStore((s) => s.toggleModelView);
+  const editable = modelView.classes.filter((cls) => cls.playerEditable);
+
+  return (
+    <div
+      data-testid="model-view"
+      style={{
+        ...panel,
+        position: 'absolute',
+        top: '50%',
+        left: '50%',
+        transform: 'translate(-50%, -50%)',
+        width: 520,
+        maxHeight: '75vh',
+        overflowY: 'auto',
+        padding: '14px 16px',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+        <strong>Model View — what kinds of things exist</strong>
+        <button
+          type="button"
+          onClick={toggleModelView}
+          style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 14 }}
+          aria-label="Close"
+        >
+          ✕
+        </button>
+      </div>
+
+      {/* Class regions (constellations). */}
+      <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
+        {modelView.classes.map((cls) => (
+          <div
+            key={cls.id}
+            data-testid={`class-${cls.id}`}
+            style={{
+              flex: '1 1 220px',
+              border: `1.5px dashed ${cls.playerEditable ? '#2b5a78' : '#8c2f26'}`,
+              borderRadius: 12,
+              padding: '8px 10px',
+              background: 'rgba(43, 90, 120, 0.04)',
+            }}
+          >
+            <strong style={{ color: cls.playerEditable ? '#2b5a78' : '#8c2f26' }}>
+              {cls.label}
+            </strong>
+            <div style={{ fontSize: 11, color: '#7a7062' }}>
+              {cls.playerEditable ? 'yours to build' : 'defined by the recall notice'}
+            </div>
+            <ul style={{ margin: '6px 0 0', padding: 0 }}>
+              {cls.members.length === 0 && (
+                <li style={{ listStyle: 'none', color: '#7a7062', fontSize: 12 }}>
+                  <em>empty — nothing classified yet</em>
+                </li>
+              )}
+              {cls.members.map((member) => (
+                <li
+                  key={member.id}
+                  data-testid={`member-${cls.id}-${member.id}`}
+                  style={{ listStyle: 'none', fontSize: 12, marginBottom: 2 }}
+                >
+                  ● {member.label}
+                  {member.inferred && (
+                    <details style={{ display: 'inline-block', marginLeft: 6 }}>
+                      <summary style={{ cursor: 'pointer', color: '#2b5a78', fontSize: 11 }}>
+                        inferred — why?
+                      </summary>
+                      <ul style={{ margin: '2px 0 0 14px', padding: 0, color: '#5a4c3a' }}>
+                        {(member.explanation ?? []).map((line) => (
+                          <li key={line} style={{ listStyle: 'disc' }}>
+                            {line}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+
+      {/* Candidate cards (the corkboard). */}
+      <div style={{ fontWeight: 600, margin: '12px 0 6px' }}>Things seen in the evidence</div>
+      <ul style={{ margin: 0, padding: 0 }}>
+        {modelView.candidates.map((candidate) => (
+          <li
+            key={candidate.id}
+            data-testid={`candidate-${candidate.id}`}
+            style={{
+              listStyle: 'none',
+              marginBottom: 8,
+              padding: '6px 10px',
+              border: '1px solid rgba(90,70,50,0.2)',
+              borderRadius: 8,
+            }}
+          >
+            <strong>{candidate.label}</strong>
+            {candidate.note && (
+              <div style={{ color: '#7a7062', fontSize: 12, fontStyle: 'italic' }}>
+                {candidate.note}
+              </div>
+            )}
+            {candidate.classification ? (
+              <div style={{ fontSize: 12, marginTop: 2 }}>
+                <span
+                  style={{
+                    color: candidate.classification.truth === 'true' ? '#2b5a78' : '#8c2f26',
+                  }}
+                >
+                  {candidate.classification.truth === 'true' ? '● classified: ' : '⨯ marked NOT '}
+                  {editable.find((cls) => cls.id === candidate.classification!.classId)?.label}
+                </span>
+                <span style={{ color: '#7a7062' }}> · Ctrl+Z to undo</span>
+              </div>
+            ) : (
+              editable.map((cls) => (
+                <div key={cls.id} style={{ marginTop: 3 }}>
+                  <button
+                    type="button"
+                    data-testid={`classify-${candidate.id}-true`}
+                    onClick={() => classify(candidate.id, cls.id, 'true')}
+                    style={smallButton}
+                  >
+                    {cls.label} ✓
+                  </button>
+                  <button
+                    type="button"
+                    data-testid={`classify-${candidate.id}-false`}
+                    onClick={() => classify(candidate.id, cls.id, 'false')}
+                    style={{ ...smallButton, borderColor: '#8c2f26', color: '#8c2f26' }}
+                  >
+                    not a {cls.label.toLowerCase()} ⨯
+                  </button>
+                </div>
+              ))
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
  * The Test verb (#51 embryo): sentence-based query builder — mad-libs slots,
  * never free text. Slot options come from what the model already knows.
  */
@@ -589,6 +743,7 @@ export function App() {
       }
       if (key === 'j') useGameStore.getState().toggleJournal();
       if (key === 'q') useGameStore.getState().toggleQuery();
+      if (key === 'm') useGameStore.getState().toggleModelView();
       if (key === 'z' && (e.ctrlKey || e.metaKey)) useGameStore.getState().undo();
       if (key === 'escape') useGameStore.getState().closeLens();
     };
@@ -639,7 +794,7 @@ export function App() {
           </span>
         </div>
         <div style={{ marginTop: 6, color: '#7a7062', fontSize: 12 }}>
-          WASD/arrows move · E scan · record clues to build the model · J journal · Q ask
+          WASD/arrows move · E scan · record clues · M model view · J journal · Q ask
         </div>
         <button
           type="button"
@@ -732,6 +887,9 @@ export function App() {
           </div>
         )}
       </div>
+
+      {/* Model View — the only surface that edits structure [I3-D1]. */}
+      {state.modelViewOpen && !state.commitOpen && state.phase !== 'debrief' && <ModelViewPanel />}
 
       {/* Commit + Debrief beats. */}
       {state.commitOpen && <CommitPanel />}
@@ -870,7 +1028,7 @@ export function App() {
         📓 Journal ({state.journal.length})
       </button>
 
-      {/* Ask toggle for pointer-first players. */}
+      {/* Ask + Model toggles for pointer-first players. */}
       <button
         type="button"
         data-testid="query-toggle"
@@ -885,6 +1043,21 @@ export function App() {
         }}
       >
         🔍 Ask
+      </button>
+      <button
+        type="button"
+        data-testid="model-toggle"
+        onClick={state.toggleModelView}
+        style={{
+          ...panel,
+          position: 'absolute',
+          left: 258,
+          bottom: 16,
+          padding: '8px 14px',
+          cursor: 'pointer',
+        }}
+      >
+        🧩 Model
       </button>
     </>
   );
