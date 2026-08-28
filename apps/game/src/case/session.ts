@@ -117,6 +117,7 @@ const PREDICATE_TEXT: Record<string, string> = {
   [VOCAB.subclassOf]: 'is a kind of',
   [VOCAB.inverseOf]: 'mirrors',
   [VOCAB.transitiveProperty]: 'chains through parts',
+  [VOCAB.sameAs]: 'is the same as',
 };
 
 const factText = (f: {
@@ -146,9 +147,17 @@ interface ClassificationState {
   readonly assertionId: string;
 }
 
+/** One player merge: two entity ids asserted to be the same thing. */
+interface MergeState {
+  readonly a: string;
+  readonly b: string;
+  readonly assertionId: string;
+}
+
 type UndoEntry =
   | { readonly kind: 'clue'; readonly clueId: string }
-  | { readonly kind: 'classify'; readonly key: string };
+  | { readonly kind: 'classify'; readonly key: string }
+  | { readonly kind: 'merge'; readonly key: string };
 
 /** Model View data (#49 embryo): classes as regions, candidates as cards. */
 export interface ModelClassView {
@@ -169,6 +178,8 @@ export interface ModelCandidateView {
   readonly note?: string;
   /** Player classification per editable class id, when made. */
   readonly classification?: { readonly classId: string; readonly truth: 'true' | 'false' };
+  /** Labels of candidates this one has been merged with (sameAs). */
+  readonly mergedWith: readonly string[];
 }
 
 export interface ModelViewData {
@@ -178,7 +189,7 @@ export interface ModelViewData {
 
 /** Versioned save shape (#62): the assertion log IS the model save (§18.7). */
 export interface CaseSnapshot {
-  readonly saveVersion: 3;
+  readonly saveVersion: 4;
   readonly log: string;
   readonly scannedIds: readonly string[];
   readonly phase: CasePhase;
@@ -188,6 +199,8 @@ export interface CaseSnapshot {
   readonly recorded: readonly [string, TruthValue, string][];
   /** [entityId, classId, truth, assertionId] for every player classification. */
   readonly classifications: readonly [string, string, 'true' | 'false', string][];
+  /** [entityIdA, entityIdB, assertionId] for every player merge. */
+  readonly merges: readonly [string, string, string][];
   /** Modeling-action order — the undo stack. */
   readonly undoStack: readonly UndoEntry[];
 }
@@ -198,6 +211,7 @@ export class CaseSession {
   private readonly scanned = new Set<string>();
   private readonly clues = new Map<string, ClueState>();
   private readonly classifications = new Map<string, ClassificationState>();
+  private readonly merges = new Map<string, MergeState>();
   private undoStack: UndoEntry[] = [];
   private result: InferenceResult;
   private seq = 0;
@@ -228,6 +242,9 @@ export class CaseSession {
           assertionId,
         });
       }
+      for (const [a, b, assertionId] of snapshot.merges) {
+        this.merges.set(CaseSession.mergeKey(a, b), { a, b, assertionId });
+      }
       this.undoStack = [...snapshot.undoStack];
     } else {
       this.log = new AssertionLog();
@@ -247,7 +264,7 @@ export class CaseSession {
 
   snapshot(): CaseSnapshot {
     return {
-      saveVersion: 3,
+      saveVersion: 4,
       log: this.log.serialize(),
       scannedIds: [...this.scanned],
       phase: this.currentPhase,
@@ -262,6 +279,7 @@ export class CaseSession {
         entry.truth,
         entry.assertionId,
       ]),
+      merges: [...this.merges.values()].map((entry) => [entry.a, entry.b, entry.assertionId]),
       undoStack: [...this.undoStack],
     };
   }
@@ -272,11 +290,12 @@ export class CaseSession {
       const snap = snapshot as CaseSnapshot;
       if (
         !snap ||
-        snap.saveVersion !== 3 ||
+        snap.saveVersion !== 4 ||
         typeof snap.log !== 'string' ||
         !Array.isArray(snap.scannedIds) ||
         !Array.isArray(snap.recorded) ||
         !Array.isArray(snap.classifications) ||
+        !Array.isArray(snap.merges) ||
         !Array.isArray(snap.undoStack) ||
         typeof snap.seq !== 'number'
       ) {
@@ -421,6 +440,38 @@ export class CaseSession {
     return true;
   }
 
+  static mergeKey(a: string, b: string): string {
+    return [a, b].sort().join('~');
+  }
+
+  /**
+   * Merge two candidates: assert sameAs [I4-D5]. Facts transfer across the
+   * identity WITHOUT moving the originals; undo retracts the link and every
+   * transferred fact un-derives — split with evidence retention, for free.
+   */
+  merge(entityIdA: string, entityIdB: string): boolean {
+    if (this.currentPhase === 'debrief') return false;
+    if (entityIdA === entityIdB) return false;
+    const candidates = new Set(MODEL_CANDIDATES.map((candidate) => candidate.id));
+    if (!candidates.has(entityIdA) || !candidates.has(entityIdB)) return false;
+    const key = CaseSession.mergeKey(entityIdA, entityIdB);
+    if (this.merges.has(key)) return false;
+
+    const assertionId = `f:${(this.seq += 1)}`;
+    this.log.assert({
+      id: assertionId,
+      subject: entityIdA,
+      predicate: VOCAB.sameAs,
+      object: entityIdB,
+      truth: 'true',
+      provenance: { kind: 'player' },
+    });
+    this.merges.set(key, { a: entityIdA, b: entityIdB, assertionId });
+    this.undoStack.push({ kind: 'merge', key });
+    this.result = infer(this.log);
+    return true;
+  }
+
   modelView(): ModelViewData {
     const memberOf = (classId: string) =>
       [...this.result.base, ...this.result.derived]
@@ -460,6 +511,12 @@ export class CaseSession {
       const classification = [...this.classifications.values()].find(
         (entry) => entry.entityId === candidate.id,
       );
+      const mergedWith = [...this.merges.values()]
+        .filter((entry) => entry.a === candidate.id || entry.b === candidate.id)
+        .map((entry) => {
+          const other = entry.a === candidate.id ? entry.b : entry.a;
+          return LABELS[other] ?? other;
+        });
       return {
         id: candidate.id,
         label: candidate.label,
@@ -467,6 +524,7 @@ export class CaseSession {
         ...(classification
           ? { classification: { classId: classification.classId, truth: classification.truth } }
           : {}),
+        mergedWith,
       };
     });
 
@@ -499,11 +557,18 @@ export class CaseSession {
       this.log.retract(clue.assertionId);
       delete clue.recordedTruth;
       delete clue.assertionId;
-    } else {
+    } else if (entry.kind === 'classify') {
       const classification = this.classifications.get(entry.key);
       if (!classification) return false;
       this.log.retract(classification.assertionId);
       this.classifications.delete(entry.key);
+    } else {
+      // Split: retract the sameAs — every transferred fact un-derives,
+      // and the original evidence never moved [I4-D5].
+      const merge = this.merges.get(entry.key);
+      if (!merge) return false;
+      this.log.retract(merge.assertionId);
+      this.merges.delete(entry.key);
     }
     this.result = infer(this.log);
     return true;
@@ -561,8 +626,9 @@ export class CaseSession {
       .filter((a) => a.provenance.kind === 'evidence')
       .map((a) => this.viewOfBase(a));
     const derived = this.result.derived
-      // The player-facing feed: skip mirror facts (inverse bookkeeping).
-      .filter((f) => f.derivation.ruleId !== 'R-inverse')
+      // The player-facing feed: skip pure bookkeeping (inverse mirrors,
+      // sameAs symmetry/transitivity) but keep identity fact-transfers.
+      .filter((f) => !['R-inverse', 'R-sameAs-sym', 'R-sameAs-trans'].includes(f.derivation.ruleId))
       .map((f) => this.viewOfDerived(f.id, f));
     return [...base, ...derived];
   }

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { ready, scanAndChoose, scanAndRecordAll } from './helpers';
+import { mergeInModelView, ready, scanAndChoose, scanAndRecordAll } from './helpers';
 
 /**
  * The Test verb over the PLAYER'S model: queries answer from what was
@@ -13,6 +13,8 @@ test('sentence query answers in tri-state with explanations', async ({ page }) =
   await scanAndRecordAll(page, 'doc:recall-notice');
   await scanAndRecordAll(page, 'doc:delivery-manifest');
   await scanAndRecordAll(page, 'product:choco-oat-bites');
+  // The manifest speaks in supplier codes — the query only connects via the merge.
+  await mergeInModelView(page, 'mix:choco-base', 'mix:ns-choco-base');
   await scanAndChoose(page, 'product:trail-crunch', 0, 'unknown');
 
   // Open the Ask panel and build the sentence.
@@ -27,7 +29,7 @@ test('sentence query answers in tri-state with explanations', async ({ page }) =
   await expect(bites).toBeVisible();
   await expect(bites).not.toContainText('can’t tell');
   await bites.locator('summary').click();
-  await expect(bites).toContainText('Choco Base Mix contains Hazelnut Paste');
+  await expect(bites).toContainText('N.S. Choco Base #4471 contains Hazelnut Paste');
 
   // Unknown: Trail Crunch — and its missing evidence is named.
   const crunch = page.getByTestId('answer-product:trail-crunch');

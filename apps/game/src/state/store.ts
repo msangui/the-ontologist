@@ -65,6 +65,7 @@ export interface GameState {
   recordClue: (clueId: string, truth?: TruthValue) => void;
   recordAllFrom: (entityId: string) => void;
   classify: (entityId: string, classId: string, truth: 'true' | 'false') => void;
+  merge: (entityIdA: string, entityIdB: string) => void;
   toggleModelView: () => void;
   undo: () => void;
   closeCase: () => void;
@@ -185,6 +186,11 @@ export const useGameStore = create<GameState>((set) => ({
   },
   classify: (entityId, classId, truth) => {
     if (!session.classify(entityId, classId, truth)) return;
+    set((prev) => mirror(prev));
+    persist();
+  },
+  merge: (entityIdA, entityIdB) => {
+    if (!session.merge(entityIdA, entityIdB)) return;
     set((prev) => mirror(prev));
     persist();
   },

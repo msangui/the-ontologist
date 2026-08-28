@@ -19,6 +19,13 @@ export const VOCAB = {
   inverseOf: 'inverseOf',
   /** transitiveProperty(p, true): p chains — p(x,y) ∧ p(y,z) → p(x,z). */
   transitiveProperty: 'transitiveProperty',
+  /**
+   * sameAs(a, b): a and b are the same entity. Symmetric and transitive;
+   * facts transfer both ways WITHOUT moving the originals — retracting the
+   * sameAs un-derives every transferred fact (split with evidence retention,
+   * [I4-D5]).
+   */
+  sameAs: 'sameAs',
 } as const;
 
 export type VocabPredicate = (typeof VOCAB)[keyof typeof VOCAB];

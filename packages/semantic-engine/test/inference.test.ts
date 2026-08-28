@@ -204,6 +204,69 @@ describe('explanations (pillar 3)', () => {
   });
 });
 
+describe('R-sameAs (merge & split, #24)', () => {
+  it('is symmetric and transitive, and transfers facts both ways with truth carried', () => {
+    const result = infer(
+      logOf(
+        a('mix:label-name', VOCAB.sameAs, 'mix:supplier-code'),
+        a('mix:supplier-code', 'contains', 'ing:hazelnut'),
+        a('product:bites', 'contains', 'mix:label-name'),
+        a('mix:supplier-code', 'contains', 'ing:almond', 'unknown'),
+      ),
+    );
+    // Subject-side transfer: the label-name twin gains the supplier facts.
+    expect(holdsTrue(result, 'mix:label-name', 'contains', 'ing:hazelnut')).toBe(true);
+    // Object-side transfer: the product now contains the supplier-code twin too.
+    expect(holdsTrue(result, 'product:bites', 'contains', 'mix:supplier-code')).toBe(true);
+    // Symmetry is derived.
+    expect(holdsTrue(result, 'mix:supplier-code', VOCAB.sameAs, 'mix:label-name')).toBe(true);
+    // Truth carries: the unknown stays unknown on the twin.
+    const transferred = result.derived.find(
+      (f) =>
+        f.subject === 'mix:label-name' && f.predicate === 'contains' && f.object === 'ing:almond',
+    );
+    expect(transferred?.truth).toBe('unknown');
+  });
+
+  it('chains identity transitively', () => {
+    const result = infer(
+      logOf(
+        a('e:1', VOCAB.sameAs, 'e:2'),
+        a('e:2', VOCAB.sameAs, 'e:3'),
+        a('e:3', 'kind', 'thing'),
+      ),
+    );
+    expect(holdsTrue(result, 'e:1', VOCAB.sameAs, 'e:3')).toBe(true);
+    expect(holdsTrue(result, 'e:1', 'kind', 'thing')).toBe(true);
+  });
+
+  it('split = retract the sameAs: transfers un-derive, originals stay (evidence retained)', () => {
+    const log = logOf(a('twin:a', VOCAB.sameAs, 'twin:b'), a('twin:b', 'contains', 'ing:x'));
+    const merged = infer(log);
+    expect(holdsTrue(merged, 'twin:a', 'contains', 'ing:x')).toBe(true);
+
+    const link = log.activeAssertions().find((f) => f.predicate === VOCAB.sameAs)!;
+    log.retract(link.id);
+    const split = infer(log);
+    // The transferred fact is gone…
+    expect(holdsTrue(split, 'twin:a', 'contains', 'ing:x')).toBe(false);
+    // …but the original evidence never moved.
+    expect(holdsTrue(split, 'twin:b', 'contains', 'ing:x')).toBe(true);
+  });
+
+  it('merging entities with conflicting facts surfaces a contradiction', () => {
+    const result = infer(
+      logOf(
+        a('e:a', 'status', 'active', 'true'),
+        a('e:b', 'status', 'active', 'false'),
+        a('e:a', VOCAB.sameAs, 'e:b'),
+      ),
+    );
+    // "These cannot be the same thing" — the conflict is the signal.
+    expect(result.contradictions.length).toBeGreaterThan(0);
+  });
+});
+
 describe('integration: recall propagation shape', () => {
   it('answers "which stores sell something containing the recalled ingredient"', () => {
     const result = infer(

@@ -31,7 +31,7 @@
     "label.soldAt": "sold at",
     "label.sells": "sells",
     "blurb.recall-notice": "URGENT — supplier batch recall: ALL tree-nut ingredients from Northstar Foods.",
-    "blurb.delivery-manifest": "This week's deliveries, with supplier mix compositions.",
+    "blurb.delivery-manifest": "This week's deliveries — Northstar lists mixes by supplier code, not shelf name.",
     "blurb.lab-report": "Courier drop from the testing lab — the field results are in.",
     "blurb.choco-oat-bites": "Ingredients: choco base mix, rolled oats, honey.",
     "blurb.trail-crunch": "The ingredient label is smudged — hazelnut paste? Can't tell.",
@@ -47,7 +47,11 @@
     "note.hazelnut-paste": "Pressed from roasted hazelnuts — a tree nut.",
     "note.rolled-oats": "A cereal grain, milled on site.",
     "note.corn": "A cereal grain, supplied whole.",
-    "note.choco-base": "A supplier mix — what matters is what it contains."
+    "note.choco-base": "A supplier mix — what matters is what it contains.",
+    "label.ns-choco-base": "N.S. Choco Base #4471",
+    "label.berry-base": "Berry Base Mix",
+    "note.ns-choco-base": "Northstar's supplier code for a chocolate base. Is this just Choco Base Mix under another name?",
+    "note.berry-base": "The berry blend used in the granola line."
   },
   "labels": {
     "doc:recall-notice": "label.recall-notice",
@@ -63,7 +67,9 @@
     "ing:hazelnut-paste": "label.hazelnut-paste",
     "ing:rolled-oats": "label.rolled-oats",
     "ing:corn": "label.corn",
-    "class:tree-nut-ingredient": "label.tree-nut"
+    "class:tree-nut-ingredient": "label.tree-nut",
+    "mix:ns-choco-base": "label.ns-choco-base",
+    "mix:berry-base": "label.berry-base"
   },
   "ontologyFacts": [
     {
@@ -98,9 +104,14 @@
       "blurbKey": "blurb.delivery-manifest",
       "scanFacts": [
         {
-          "subject": "mix:choco-base",
+          "subject": "mix:ns-choco-base",
           "predicate": "contains",
           "object": "ing:hazelnut-paste"
+        },
+        {
+          "subject": "mix:berry-base",
+          "predicate": "contains",
+          "object": "ing:rolled-oats"
         },
         {
           "subject": "product:choco-oat-bites",
@@ -156,7 +167,7 @@
         {
           "subject": "product:berry-granola",
           "predicate": "contains",
-          "object": "ing:rolled-oats"
+          "object": "mix:berry-base"
         }
       ]
     },
@@ -196,6 +207,11 @@
           "predicate": "contains",
           "object": "ing:hazelnut-paste",
           "truth": "false"
+        },
+        {
+          "subject": "product:choco-oat-bites",
+          "predicate": "contains",
+          "object": "ing:hazelnut-paste"
         }
       ]
     }
@@ -336,18 +352,32 @@
     "reworkKey": "debrief.rework"
   },
   "modelClasses": ["class:tree-nut-ingredient"],
-  "modelCandidates": ["ing:hazelnut-paste", "ing:rolled-oats", "ing:corn", "mix:choco-base"],
+  "modelCandidates": [
+    "ing:hazelnut-paste",
+    "ing:rolled-oats",
+    "ing:corn",
+    "mix:choco-base",
+    "mix:ns-choco-base",
+    "mix:berry-base"
+  ],
   "notes": {
     "ing:hazelnut-paste": "note.hazelnut-paste",
     "ing:rolled-oats": "note.rolled-oats",
     "ing:corn": "note.corn",
-    "mix:choco-base": "note.choco-base"
+    "mix:choco-base": "note.choco-base",
+    "mix:ns-choco-base": "note.ns-choco-base",
+    "mix:berry-base": "note.berry-base"
   },
   "intendedActions": [
     {
       "subject": "ing:hazelnut-paste",
       "predicate": "instanceOf",
       "object": "class:tree-nut-ingredient"
+    },
+    {
+      "subject": "mix:choco-base",
+      "predicate": "sameAs",
+      "object": "mix:ns-choco-base"
     }
   ]
 }

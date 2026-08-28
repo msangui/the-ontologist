@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { classifyInModelView, ready, scanAndRecordAll } from './helpers';
+import { classifyInModelView, mergeInModelView, ready, scanAndRecordAll } from './helpers';
 
 /**
  * G1 tech-gate line (#64): saves survive reload + export/import round-trip —
@@ -21,13 +21,14 @@ test('saves survive reload and export/import round-trip', async ({ page }) => {
   await page.goto('/');
   await ready(page);
 
-  // Play partway (3 scans + 3 record-alls + 1 classify = 7 autosaves).
+  // Play partway (3 scans + 3 record-alls + 1 classify + 1 merge = 8 autosaves).
   await scanAndRecordAll(page, 'doc:recall-notice');
   await scanAndRecordAll(page, 'doc:delivery-manifest');
   await scanAndRecordAll(page, 'product:choco-oat-bites');
   await classifyInModelView(page, 'ing:hazelnut-paste', 'true');
+  await mergeInModelView(page, 'mix:choco-base', 'mix:ns-choco-base');
   await page.waitForFunction(
-    () => (window.__ontologist!.getState() as { savesWritten: number }).savesWritten >= 7,
+    () => (window.__ontologist!.getState() as { savesWritten: number }).savesWritten >= 8,
   );
 
   // Hard reload → autosave resumes the exact case state, undo stack included.

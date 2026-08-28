@@ -181,8 +181,12 @@ function ClueRow({ clue, showSource }: { clue: ClueView; showSource?: boolean })
 function ModelViewPanel() {
   const modelView = useGameStore((s) => s.modelView);
   const classify = useGameStore((s) => s.classify);
+  const merge = useGameStore((s) => s.merge);
   const toggleModelView = useGameStore((s) => s.toggleModelView);
   const editable = modelView.classes.filter((cls) => cls.playerEditable);
+  const [mergeA, setMergeA] = useState('');
+  const [mergeB, setMergeB] = useState('');
+  const canMerge = mergeA !== '' && mergeB !== '' && mergeA !== mergeB;
 
   return (
     <div
@@ -286,6 +290,14 @@ function ModelViewPanel() {
                 {candidate.note}
               </div>
             )}
+            {candidate.mergedWith.length > 0 && (
+              <div data-testid={`merged-${candidate.id}`} style={{ fontSize: 12, marginTop: 2 }}>
+                <span style={{ color: '#2b5a78' }}>
+                  ⧉ same as {candidate.mergedWith.join(', ')}
+                </span>
+                <span style={{ color: '#7a7062' }}> · Ctrl+Z to split (evidence keeps)</span>
+              </div>
+            )}
             {candidate.classification ? (
               <div style={{ fontSize: 12, marginTop: 2 }}>
                 <span
@@ -323,6 +335,60 @@ function ModelViewPanel() {
           </li>
         ))}
       </ul>
+
+      {/* Merge (the identity verb): assert two things are the same. */}
+      <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid rgba(90,70,50,0.2)' }}>
+        <div style={{ fontWeight: 600, marginBottom: 4 }}>
+          Merge — are two of these the same thing?
+        </div>
+        <select
+          data-testid="merge-a"
+          value={mergeA}
+          onChange={(e) => setMergeA(e.target.value)}
+          style={{ fontSize: 12 }}
+        >
+          <option value="" disabled>
+            pick one…
+          </option>
+          {modelView.candidates.map((candidate) => (
+            <option key={candidate.id} value={candidate.id}>
+              {candidate.label}
+            </option>
+          ))}
+        </select>{' '}
+        <span style={{ fontSize: 12 }}>is the same as</span>{' '}
+        <select
+          data-testid="merge-b"
+          value={mergeB}
+          onChange={(e) => setMergeB(e.target.value)}
+          style={{ fontSize: 12 }}
+        >
+          <option value="" disabled>
+            pick one…
+          </option>
+          {modelView.candidates.map((candidate) => (
+            <option key={candidate.id} value={candidate.id}>
+              {candidate.label}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          data-testid="merge-confirm"
+          disabled={!canMerge}
+          onClick={() => {
+            merge(mergeA, mergeB);
+            setMergeA('');
+            setMergeB('');
+          }}
+          style={{ ...smallButton, opacity: canMerge ? 1 : 0.4 }}
+        >
+          Merge ⧉
+        </button>
+        <div style={{ fontSize: 11, color: '#7a7062', marginTop: 2 }}>
+          Evidence is never lost: a merge transfers facts; undo splits them back apart.
+        </div>
+      </div>
     </div>
   );
 }

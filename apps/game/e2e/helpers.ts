@@ -35,6 +35,16 @@ export async function classifyInModelView(
   await page.getByTestId('model-toggle').click();
 }
 
+/** Merge two candidates in Model View (the identity verb). */
+export async function mergeInModelView(page: Page, a: string, b: string): Promise<void> {
+  await page.getByTestId('model-toggle').click();
+  await expect(page.getByTestId('model-view')).toBeVisible();
+  await page.getByTestId('merge-a').selectOption(a);
+  await page.getByTestId('merge-b').selectOption(b);
+  await page.getByTestId('merge-confirm').click();
+  await page.getByTestId('model-toggle').click();
+}
+
 /** Scan and resolve the entity's ambiguous clue with the given choice. */
 export async function scanAndChoose(
   page: Page,

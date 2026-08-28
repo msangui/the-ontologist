@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test';
-import { classifyInModelView, ready, scanAndChoose, scanAndRecordAll } from './helpers';
+import {
+  classifyInModelView,
+  mergeInModelView,
+  ready,
+  scanAndChoose,
+  scanAndRecordAll,
+} from './helpers';
 
 /**
  * Wave 1 with the Model verb: scanning yields leads, RECORDING builds the
@@ -23,15 +29,21 @@ test('the recall case plays end to end with live inference', async ({ page }) =>
   // classifies. The recorded facts alone don't implicate anything.
   await expect(page.getByTestId('status-product:choco-oat-bites')).not.toContainText('AFFECTED');
 
-  // The Classify verb: hazelnut paste is a tree nut → the engine derives
-  // that it's recalled (subclass) → the transitive chain implicates the product.
+  // The Classify verb: hazelnut paste is a tree nut → recalled (subclass).
   await classifyInModelView(page, 'ing:hazelnut-paste', 'true');
+  // …but STILL nothing: the manifest speaks in supplier codes. The chain is
+  // broken by a duplicate identity — "N.S. Choco Base #4471" vs "Choco Base Mix".
+  await expect(page.getByTestId('status-product:choco-oat-bites')).not.toContainText('AFFECTED');
+
+  // The Merge verb: assert they're the same thing → facts transfer → AFFECTED.
+  await mergeInModelView(page, 'mix:choco-base', 'mix:ns-choco-base');
   await expect(page.getByTestId('status-product:choco-oat-bites')).toContainText('AFFECTED');
   // The derived membership is visible (and explainable) in Model View.
   await page.getByTestId('model-toggle').click();
   await expect(
     page.getByTestId('member-class:recalled-ingredient-ing:hazelnut-paste'),
   ).toContainText('inferred');
+  await expect(page.getByTestId('merged-mix:choco-base')).toContainText('same as');
   await page.getByTestId('model-toggle').click();
 
   // Unknown ≠ false: the smudged label is the player's call — record unknown.
@@ -49,7 +61,14 @@ test('the recall case plays end to end with live inference', async ({ page }) =>
   await page.getByTestId('undo-record').click();
   await expect(page.getByTestId('status-product:sunny-pops')).not.toContainText('AFFECTED');
 
+  // A WRONG merge propagates too: Berry Base = the chocolate supplier code?
+  // Berry Granola is wrongly implicated. Undo = split, evidence retained.
   await scanAndRecordAll(page, 'product:berry-granola');
+  await mergeInModelView(page, 'mix:berry-base', 'mix:ns-choco-base');
+  await expect(page.getByTestId('status-product:berry-granola')).toContainText('AFFECTED');
+  await page.getByTestId('undo-record').click();
+  await expect(page.getByTestId('status-product:berry-granola')).not.toContainText('AFFECTED');
+
   await expect(page.getByTestId('status-product:berry-granola')).toContainText('safe');
   // Wave 1 complete → the Act unlocks (Field Verification is its own spec).
   await expect(page.getByTestId('file-report-open')).toBeVisible();
@@ -64,6 +83,8 @@ test('the recall case plays end to end with live inference', async ({ page }) =>
   await expect(inferredRow).toBeVisible();
   await inferredRow.getByTestId('why-button').click();
   const trace = inferredRow.getByTestId('why-trace');
+  // The explanation routes through the player's own merge.
+  await expect(trace).toContainText('Choco Base Mix is the same as N.S. Choco Base #4471 — you');
   await expect(trace).toContainText('Choco Oat Bites contains Choco Base Mix');
-  await expect(trace).toContainText('Choco Base Mix contains Hazelnut Paste');
+  await expect(trace).toContainText('N.S. Choco Base #4471 contains Hazelnut Paste');
 });
